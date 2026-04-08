@@ -1,0 +1,12 @@
+{
+  "name": "doubleslit",
+  "displayName": "Double Slit",
+  "physics": "quantum",
+  "particleCount": 10000,
+  "params": { "slitSeparation": 60, "slitWidth": 10, "wavelength": 0.5 },
+  "camera": { "x": 0, "y": 0, "z": 600, "fov": 60 },
+  "description": "Young's double-slit experiment. Quantum particles exhibit wave-particle duality, forming interference fringes on the detector screen.",
+  "equation": "P = |ψ₁+ψ₂|²",
+  "discoverer": "Thomas Young",
+  "year": 1801
+}

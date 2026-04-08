@@ -1,0 +1,12 @@
+{
+  "name": "bigbang",
+  "displayName": "Big Bang",
+  "physics": "relativity",
+  "particleCount": 30000,
+  "params": { "G": 0.2, "initialSpeed": 8, "c": 15 },
+  "camera": { "x": 0, "y": 0, "z": 600, "fov": 60 },
+  "description": "Cosmological expansion from a singularity. Particles burst outward with relativistic velocities, redshifting as they recede.",
+  "equation": "V(r) = H₀·r",
+  "discoverer": "Georges Lemaître",
+  "year": 1927
+}

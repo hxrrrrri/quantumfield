@@ -1,0 +1,12 @@
+{
+  "name": "galaxy",
+  "displayName": "Galaxy Spiral",
+  "physics": "classical",
+  "particleCount": 50000,
+  "params": { "G": 1.0, "arms": 3, "spiralTightness": 0.025 },
+  "camera": { "x": 0, "y": 0, "z": 600, "fov": 60 },
+  "description": "Three-arm galaxy spiral with Barnes-Hut gravity. Stars orbit a central attractor while arm structure emerges from initial conditions.",
+  "equation": "F = Gm₁m₂/r²",
+  "discoverer": "Isaac Newton",
+  "year": 1687
+}

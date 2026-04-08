@@ -1,0 +1,12 @@
+{
+  "name": "blackhole",
+  "displayName": "Black Hole",
+  "physics": "relativity",
+  "particleCount": 25000,
+  "params": { "G": 2.0, "blackHoleMass": 500000, "c": 15 },
+  "camera": { "x": 0, "y": 0, "z": 600, "fov": 60 },
+  "description": "Schwarzschild black hole with accretion disk. Particles spiral inward as spacetime curvature warps their geodesic paths. Those crossing the event horizon are absorbed.",
+  "equation": "rs = 2GM/c²",
+  "discoverer": "Karl Schwarzschild",
+  "year": 1916
+}

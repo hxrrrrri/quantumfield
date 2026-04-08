@@ -1,0 +1,12 @@
+{
+  "name": "cnn",
+  "displayName": "cnn",
+  "physics": "classical",
+  "particleCount": 10000,
+  "params": { "G": 1.0 },
+  "camera": { "x": 0, "y": 0, "z": 600, "fov": 60 },
+  "description": "Scene: cnn",
+  "equation": "F = ma",
+  "discoverer": "Various",
+  "year": 2024
+}

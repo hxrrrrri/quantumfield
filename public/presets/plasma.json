@@ -1,0 +1,12 @@
+{
+  "name": "plasma",
+  "displayName": "Plasma Storm",
+  "physics": "em",
+  "particleCount": 20000,
+  "params": { "Bz": 0.08, "chargeRatio": 0.5, "temperature": 1e4 },
+  "camera": { "x": 0, "y": 0, "z": 600, "fov": 60 },
+  "description": "Hot plasma confined by magnetic field. Positive and negative charges spiral around field lines, forming complex filamentary structures.",
+  "equation": "F = q(E + v×B)",
+  "discoverer": "H.A. Lorentz",
+  "year": 1895
+}

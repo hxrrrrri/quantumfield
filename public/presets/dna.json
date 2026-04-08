@@ -1,0 +1,12 @@
+{
+  "name": "dna",
+  "displayName": "DNA Helix",
+  "physics": "classical",
+  "particleCount": 8000,
+  "params": { "helixPitch": 12, "helixRadius": 40, "basePairSpacing": 0.34 },
+  "camera": { "x": 0, "y": 0, "z": 600, "fov": 60 },
+  "description": "Double helix structure with complementary base pairs. Spring bonds maintain helical geometry while thermal fluctuations add biological realism.",
+  "equation": "B-DNA: 3.4Å/bp, 10.5 bp/turn",
+  "discoverer": "Watson & Crick",
+  "year": 1953
+}

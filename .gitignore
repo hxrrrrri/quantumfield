@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.vercel/
+dist/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+.env.local
+.env.production
+bun.lockb

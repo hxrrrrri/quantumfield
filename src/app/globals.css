@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+:root {
+  --space-void: #03040a;
+  --nebula-purple: #6c3fc5;
+  --plasma-cyan: #00d4ff;
+  --stellar-gold: #ffd166;
+  --corona-orange: #ff6b35;
+  --void-gray: #1a1d2e;
+  --mist-gray: #2d3154;
+  --particle-white: #e8eaf6;
+  --panel-bg: rgba(8, 10, 26, 0.82);
+  --panel-border: rgba(100, 120, 255, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--space-void);
+  color: var(--particle-white);
+  font-family: var(--font-inter), sans-serif;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--panel-border);
+  border-radius: 2px;
+}
+
+/* Range input styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 3px;
+  background: rgba(100, 120, 255, 0.2);
+  border-radius: 2px;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--plasma-cyan);
+  cursor: pointer;
+  box-shadow: 0 0 6px var(--plasma-cyan);
+}
+
+/* KaTeX equation display */
+.katex-equation {
+  font-size: 14px;
+  color: var(--plasma-cyan);
+  padding: 8px 12px;
+  background: rgba(0, 212, 255, 0.05);
+  border: 0.5px solid rgba(0, 212, 255, 0.15);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* KaTeX */
+@import url('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css');

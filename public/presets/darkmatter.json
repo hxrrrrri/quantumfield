@@ -1,0 +1,12 @@
+{
+  "name": "darkmatter",
+  "displayName": "darkmatter",
+  "physics": "classical",
+  "particleCount": 10000,
+  "params": { "G": 1.0 },
+  "camera": { "x": 0, "y": 0, "z": 600, "fov": 60 },
+  "description": "Scene: darkmatter",
+  "equation": "F = ma",
+  "discoverer": "Various",
+  "year": 2024
+}

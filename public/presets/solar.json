@@ -1,0 +1,12 @@
+{
+  "name": "solar",
+  "displayName": "Solar System",
+  "physics": "classical",
+  "particleCount": 5000,
+  "params": { "G": 1.5, "sunMass": 3, "planetCount": 8 },
+  "camera": { "x": 0, "y": 0, "z": 600, "fov": 60 },
+  "description": "Newtonian N-body solar system. Sun at center with 8 orbital rings. Kepler's third law: T² ∝ a³ emerges from gravitational dynamics.",
+  "equation": "T² ∝ a³",
+  "discoverer": "Johannes Kepler",
+  "year": 1619
+}
