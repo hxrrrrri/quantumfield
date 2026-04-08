@@ -38,7 +38,9 @@ export type ColormapName =
   | "turbo"
   | "cyan"
   | "fire"
-  | "aurora";
+  | "aurora"
+  | "rainbow"
+  | "neon";
 
 export type PresetName =
   | "bigbang"

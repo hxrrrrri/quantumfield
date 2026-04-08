@@ -1,77 +1,65 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css');
 
 :root {
-  --space-void: #03040a;
+  --void: #0d0e13;
+  --surface-low: #121319;
+  --surface: #181920;
+  --surface-high: #1e1f26;
+  --surface-bright: #2a2c34;
+  --primary: #8ff5ff;
+  --primary-dim: #00deec;
+  --secondary: #ac89ff;
+  --tertiary: #ffc965;
+  --error: #ff716c;
+  --text: #f7f5fd;
+  --text-muted: #abaab1;
+  --text-dim: #75757b;
+  --cyan-glow: rgba(143,245,255,0.2);
+  --violet-glow: rgba(172,137,255,0.15);
+  --amber-glow: rgba(255,201,101,0.15);
+  --space-void: #0d0e13;
   --nebula-purple: #6c3fc5;
-  --plasma-cyan: #00d4ff;
-  --stellar-gold: #ffd166;
+  --plasma-cyan: #8ff5ff;
+  --stellar-gold: #ffc965;
   --corona-orange: #ff6b35;
   --void-gray: #1a1d2e;
   --mist-gray: #2d3154;
-  --particle-white: #e8eaf6;
-  --panel-bg: rgba(8, 10, 26, 0.82);
-  --panel-border: rgba(100, 120, 255, 0.18);
+  --particle-white: #f7f5fd;
+  --panel-bg: rgba(13,14,19,0.75);
+  --panel-border: rgba(143,245,255,0.08);
 }
 
-* {
-  box-sizing: border-box;
+*,*::before,*::after{box-sizing:border-box;}
+html,body{
+  height:100%;width:100%;overflow:hidden;
+  /* Force pure dark background — no white fallback */
+  background:#0d0e13 !important;
+  color:var(--text);
+  font-family:'Manrope',sans-serif;
 }
 
-html,
-body {
-  height: 100%;
-  width: 100%;
-  overflow: hidden;
-  background: var(--space-void);
-  color: var(--particle-white);
-  font-family: var(--font-inter), sans-serif;
-}
+.glass{background:rgba(18,19,25,0.5);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);}
+.ghost-border{outline:1px solid rgba(143,245,255,0.1);}
+.plasma-glow{box-shadow:0 0 30px rgba(143,245,255,0.12),inset 0 0 15px rgba(172,137,255,0.08);}
+.refractive-glass{background:rgba(18,19,25,0.4);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);}
 
-/* Scrollbar styling */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: var(--panel-border);
-  border-radius: 2px;
-}
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(143,245,255,0.1);border-radius:2px;}
 
-/* Range input styling */
-input[type="range"] {
-  -webkit-appearance: none;
-  width: 100%;
-  height: 3px;
-  background: rgba(100, 120, 255, 0.2);
-  border-radius: 2px;
-  outline: none;
-}
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--plasma-cyan);
-  cursor: pointer;
-  box-shadow: 0 0 6px var(--plasma-cyan);
-}
+input[type="range"]{-webkit-appearance:none;width:100%;height:2px;background:rgba(143,245,255,0.15);border-radius:2px;outline:none;}
+input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:var(--primary);cursor:pointer;box-shadow:0 0 8px var(--primary);}
 
-/* KaTeX equation display */
-.katex-equation {
-  font-size: 14px;
-  color: var(--plasma-cyan);
-  padding: 8px 12px;
-  background: rgba(0, 212, 255, 0.05);
-  border: 0.5px solid rgba(0, 212, 255, 0.15);
-  border-radius: 6px;
-  overflow-x: auto;
-}
+.katex-equation{font-size:13px;color:var(--primary);padding:7px 10px;background:rgba(143,245,255,0.04);border:1px solid rgba(143,245,255,0.1);border-radius:4px;overflow-x:auto;}
+.magnetic-hover{transition:transform 0.15s ease;}
+.magnetic-hover:hover{transform:translate(2px,-2px);}
 
-/* Reduced motion */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
-}
+@keyframes phaseIn{0%{opacity:0;transform:scale(0.97) translateY(4px);}100%{opacity:1;transform:scale(1) translateY(0);}}
+.phase-in{animation:phaseIn 0.35s ease-out forwards;}
 
-/* KaTeX */
-@import url('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css');
+@keyframes pulseGlow{0%,100%{box-shadow:0 0 8px rgba(143,245,255,0.2);}50%{box-shadow:0 0 22px rgba(143,245,255,0.55);}}
+.pulse-glow{animation:pulseGlow 2.5s ease-in-out infinite;}
+
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms !important;transition-duration:0.01ms !important;}}

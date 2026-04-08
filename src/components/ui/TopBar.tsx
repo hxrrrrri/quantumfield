@@ -2,63 +2,172 @@
 import { useSimulatorStore } from "@/store/simulatorStore";
 import type { PhysicsMode } from "@/types";
 
-const MODES: Array<{ id: PhysicsMode; label: string; icon: string }> = [
-  { id: "classical", label: "Classical", icon: "⚛" },
-  { id: "quantum", label: "Quantum", icon: "ψ" },
-  { id: "relativity", label: "Relativity", icon: "γ" },
-  { id: "fluid", label: "Fluid SPH", icon: "~" },
-  { id: "em", label: "EM Field", icon: "∇" },
-  { id: "future", label: "Future", icon: "∞" },
+const MODES: Array<{ id: PhysicsMode; label: string }> = [
+  { id: "classical",  label: "Classical"  },
+  { id: "quantum",    label: "Quantum"    },
+  { id: "relativity", label: "Relativity" },
+  { id: "fluid",      label: "SPH Fluid"  },
+  { id: "em",         label: "EM Field"   },
+  { id: "future",     label: "Future"     },
 ];
+
+const PHYSICS_INFO: Record<string, { label: string; eq: string }> = {
+  classical:  { label: "NEWTONIAN GRAVITY",   eq: "F = Gm₁m₂ / r²"            },
+  quantum:    { label: "QUANTUM WAVEFUNCTION", eq: "iℏ∂ψ/∂t = Ĥψ"             },
+  relativity: { label: "SPECIAL RELATIVITY",  eq: "γ = 1/√(1−v²/c²)"          },
+  fluid:      { label: "SPH FLUID DYNAMICS",  eq: "ρ(r) = Σmⱼ·W(r−rⱼ,h)"     },
+  em:         { label: "LORENTZ EM FORCE",    eq: "F = q(E + v×B)"             },
+  future:     { label: "STRING THEORY",       eq: "S = −1/(2α′)∫d²σ·∂Xᵘ∂Xᵤ" },
+};
 
 export default function TopBar() {
   const store = useSimulatorStore();
+  const info = PHYSICS_INFO[store.physicsMode] ?? PHYSICS_INFO["classical"]!;
+
+  const handleMode = (id: PhysicsMode) => {
+    store.setPhysicsMode(id);
+    window.dispatchEvent(new CustomEvent("qf:physicsMode", { detail: id }));
+  };
+
   return (
     <header
-      className="absolute top-0 left-0 right-0 h-12 z-20 flex items-center px-4 gap-3"
-      style={{ background: "rgba(8,10,26,0.82)", backdropFilter: "blur(12px)", borderBottom: "0.5px solid rgba(100,120,255,0.18)" }}
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 52,
+        zIndex: 20,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0 16px",
+        background: "rgba(13,14,19,0.7)",
+        backdropFilter: "blur(20px)",
+        borderBottom: "1px solid rgba(143,245,255,0.07)",
+      }}
       role="navigation"
       aria-label="Physics mode selector"
     >
-      <div className="text-sm font-semibold tracking-widest mr-2 text-particle-white select-none">
-        QUANTUM<span className="text-plasma-cyan">FIELD</span>
-      </div>
-      {MODES.map((m) => (
-        <button
-          key={m.id}
-          onClick={() => store.setPhysicsMode(m.id)}
-          className={`px-3 py-1 rounded-full text-xs font-medium tracking-wide transition-all border ${
-            store.physicsMode === m.id
-              ? "border-plasma-cyan text-plasma-cyan bg-plasma-cyan/10"
-              : "border-mist-gray/30 text-void-gray/60 hover:border-plasma-cyan/50 hover:text-plasma-cyan/70"
-          }`}
-          aria-pressed={store.physicsMode === m.id}
-          aria-label={`Switch to ${m.label} physics mode`}
-          style={{ color: store.physicsMode === m.id ? "#00d4ff" : "#7080a8" }}
-        >
-          <span className="mr-1">{m.icon}</span>{m.label}
-        </button>
-      ))}
-      <div className="ml-auto flex gap-2">
-        <button
-          onClick={() => store.setRunning(!store.isRunning)}
-          className="px-3 py-1 rounded text-xs border transition-all"
+      {/* Logo */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <span
           style={{
-            borderColor: store.isRunning ? "rgba(255,107,53,0.4)" : "rgba(0,212,255,0.4)",
-            color: store.isRunning ? "#ff6b35" : "#00d4ff",
-            background: store.isRunning ? "rgba(255,107,53,0.08)" : "rgba(0,212,255,0.08)",
+            fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+            fontWeight: 700,
+            fontSize: 14,
+            letterSpacing: "0.12em",
+            color: "var(--primary)",
+            textTransform: "uppercase",
+          }}
+        >
+          QUANTUM_FIELD
+        </span>
+        <div style={{ width: 1, height: 14, background: "rgba(143,245,255,0.2)" }} />
+        <span
+          style={{
+            fontFamily: "var(--font-jetbrains), monospace",
+            fontSize: 9,
+            letterSpacing: "0.2em",
+            color: "var(--text-dim)",
+            textTransform: "uppercase",
+          }}
+        >
+          CELESTIAL_OBSERVER_v3.0
+        </span>
+      </div>
+
+      {/* Mode pills */}
+      <nav
+        style={{ display: "flex", gap: 4, alignItems: "center" }}
+        aria-label="Physics modes"
+      >
+        {MODES.map((m) => (
+          <button
+            key={m.id}
+            onClick={() => handleMode(m.id)}
+            style={{
+              background: store.physicsMode === m.id ? "rgba(143,245,255,0.08)" : "transparent",
+              border: "none",
+              borderBottom: store.physicsMode === m.id ? "1.5px solid var(--primary)" : "1.5px solid transparent",
+              color: store.physicsMode === m.id ? "var(--primary)" : "var(--text-dim)",
+              fontFamily: "var(--font-space-grotesk), sans-serif",
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              padding: "6px 10px",
+              cursor: "pointer",
+              transition: "all 0.18s",
+            }}
+            aria-pressed={store.physicsMode === m.id}
+            aria-label={`Switch to ${m.label} physics`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* Right controls */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <button
+          onClick={() => {
+            store.setRunning(!store.isRunning);
+            window.dispatchEvent(new CustomEvent("qf:pause"));
+          }}
+          style={{
+            background: store.isRunning ? "rgba(255,107,53,0.08)" : "rgba(143,245,255,0.08)",
+            border: `1px solid ${store.isRunning ? "rgba(255,107,53,0.3)" : "rgba(143,245,255,0.3)"}`,
+            color: store.isRunning ? "#ff6b35" : "var(--primary)",
+            fontFamily: "var(--font-space-grotesk), sans-serif",
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "0.15em",
+            textTransform: "uppercase",
+            padding: "5px 10px",
+            borderRadius: 3,
+            cursor: "pointer",
+            transition: "all 0.2s",
           }}
           aria-label={store.isRunning ? "Pause simulation" : "Resume simulation"}
         >
-          {store.isRunning ? "⏸ Pause" : "▶ Play"}
+          {store.isRunning ? "⏸ Pause" : "▶ Resume"}
+        </button>
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("qf:explode"))}
+          style={{
+            background: "rgba(255,201,101,0.07)",
+            border: "1px solid rgba(255,201,101,0.25)",
+            color: "var(--tertiary)",
+            fontFamily: "var(--font-space-grotesk), sans-serif",
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "0.15em",
+            textTransform: "uppercase",
+            padding: "5px 10px",
+            borderRadius: 3,
+            cursor: "pointer",
+            transition: "all 0.2s",
+          }}
+          aria-label="Explode particles"
+        >
+          ⚡ Initiate
         </button>
         <button
           onClick={() => store.toggleSidebar()}
-          className="px-3 py-1 rounded text-xs border transition-all"
-          style={{ borderColor: "rgba(100,120,255,0.3)", color: "#7080a8" }}
+          style={{
+            background: "transparent",
+            border: "1px solid rgba(143,245,255,0.12)",
+            color: "var(--text-dim)",
+            fontSize: 13,
+            padding: "4px 8px",
+            borderRadius: 3,
+            cursor: "pointer",
+            transition: "color 0.2s",
+          }}
           aria-label="Toggle sidebar"
         >
-          ☰
+          ⊟
         </button>
       </div>
     </header>
