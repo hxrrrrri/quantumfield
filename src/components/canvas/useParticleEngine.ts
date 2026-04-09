@@ -129,6 +129,12 @@ function createScaledLayer(width: number, height: number, dpr: number, alpha = t
   return { buf, ctx };
 }
 
+const SHAPE_DEFAULTS = {
+  trailDecay: 0.5,
+  particleSize: 1.2,
+  timeScale: 2.9,
+} as const;
+
 /* ─── Particle arrays (SoA) ─────────────────────────────────────────────── */
 interface Particles {
   px:Float32Array; py:Float32Array;
@@ -1721,8 +1727,15 @@ export function useParticleEngine({canvasRef}:EngineOptions){
 
   /* ── Event bus ────────────────────────────────────────────────────── */
   useEffect(()=>{
+    const applyShapeDefaults=()=>{
+      const store=storeStateRef.current;
+      store.setTrailDecay(SHAPE_DEFAULTS.trailDecay);
+      store.setParticleSize(SHAPE_DEFAULTS.particleSize);
+      store.setTimeScale(SHAPE_DEFAULTS.timeScale);
+    };
     const onPreset=(e:Event)=>{const name=(e as CustomEvent).detail as string;storeStateRef.current.setActivePreset(name as never);initPreset(name);};
     const onShape=(e:Event)=>{
+      applyShapeDefaults();
       const s=(e as CustomEvent).detail as string;
       if(s==="galaxy"){
         initPreset("galaxy");
@@ -1731,7 +1744,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
         snapToShape(s);
       }
     };
-    const onText=(e:Event)=>activateText((e as CustomEvent).detail as string);
+    const onText=(e:Event)=>{applyShapeDefaults();activateText((e as CustomEvent).detail as string);};
     const onExplode=()=>{const p=pRef.current;if(!p)return;for(let i=0;i<p.count;i++){p.pvx[i]=(p.pvx[i]??0)+(Math.random()-0.5)*24;p.pvy[i]=(p.pvy[i]??0)+(Math.random()-0.5)*24;}};
     const onForce=(e:Event)=>{forceModeRef.current=(e as CustomEvent).detail as "attract"|"repel"|"orbit";};
     const onMorph=(e:Event)=>{morphSpeedRef.current=(e as CustomEvent).detail as number;};
@@ -1789,6 +1802,9 @@ export function useParticleEngine({canvasRef}:EngineOptions){
         stream?: boolean;
         targetCount?: number;
       };
+      if(!stream||!imgModeRef.current){
+        applyShapeDefaults();
+      }
       if(stream){
         updateImageTargets(data,w,h,!!exact,targetCount);
         return;
@@ -1810,6 +1826,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       }
     };
     const onParticleCloud=(e:Event)=>{
+      applyShapeDefaults();
       activateParticleCloud((e as CustomEvent).detail as ParticleCloudEvent);
     };
 

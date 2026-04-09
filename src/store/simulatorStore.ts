@@ -46,7 +46,7 @@ const DEFAULT_STATE: SimulatorState = {
   renderMode: "webgl2",
   colormap: "viridis",
   particleCount: 50000,
-  timeScale: 1.0,
+  timeScale: 2.9,
   gravityG: 1.0,
   bloomIntensity: 0,
   trailDecay: 0.5,
