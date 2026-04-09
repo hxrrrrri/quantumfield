@@ -153,9 +153,17 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // Soft falloff
     let alpha = smoothstep(1.0, 0.0, d) * in.color.a;
 
-    // Bloom: brighter core
-    let core = smoothstep(0.6, 0.0, d) * uniforms.bloomIntensity;
-    let finalRGB = in.color.rgb + core * in.color.rgb;
+    // Bloom: brighter core, carefully clamped to avoid massive white flashes
+    // when particles overlap heavily or form dense clusters
+    let coreVal = smoothstep(0.6, 0.0, d) * uniforms.bloomIntensity;
+    let bloomBoost = in.color.rgb * coreVal;
+    let finalRGB = min(in.color.rgb + bloomBoost, vec3<f32>(1.2, 1.2, 1.2)); // Cap raw RGB intensity
 
-    return vec4<f32>(finalRGB, alpha);
+    // Tonemap / soft clip the output to prevent pure white burn-out
+    let luma = dot(finalRGB, vec3<f32>(0.299, 0.587, 0.114));
+    if (luma > 1.0) {
+        finalRGB = mix(finalRGB / luma, finalRGB, 0.5); // Soft roll-off
+    }
+
+    return vec4<f32>(finalRGB, min(alpha, 0.95)); // Cap max alpha slightly to prevent blowing out additive blends
 }

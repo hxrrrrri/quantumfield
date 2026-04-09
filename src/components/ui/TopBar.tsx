@@ -101,6 +101,27 @@ export default function TopBar() {
       {/* Right controls */}
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         <button
+          onClick={() => store.toggleMediaStudio()}
+          style={{
+            background: store.mediaStudioOpen ? "rgba(143,245,255,0.12)" : "rgba(143,245,255,0.05)",
+            border: `1px solid ${store.mediaStudioOpen ? "rgba(143,245,255,0.6)" : "rgba(143,245,255,0.2)"}`,
+            color: store.mediaStudioOpen ? "var(--primary)" : "rgba(143,245,255,0.7)",
+            fontFamily: "var(--font-space-grotesk), sans-serif",
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            padding: "5px 10px",
+            borderRadius: 3,
+            cursor: "pointer",
+            transition: "all 0.2s",
+          }}
+          aria-pressed={store.mediaStudioOpen}
+          aria-label="Toggle Media Studio"
+        >
+          STUDIO {store.mediaStudioOpen ? "ON" : "OFF"}
+        </button>
+        <button
           onClick={() => store.toggleANNPanel()}
           style={{
             background: store.annPanelOpen ? "rgba(0,255,176,0.12)" : "rgba(0,255,176,0.05)",

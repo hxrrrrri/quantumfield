@@ -12,68 +12,142 @@ export default function GANVisualizer({ width = 600, height = 280 }: GANVisualiz
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.fillStyle = "rgba(3,4,10,0.2)";
+    
+    // Smooth trailing effect
+    ctx.fillStyle = "rgba(4, 8, 16, 0.4)";
     ctx.fillRect(0, 0, width, height);
+    ctx.globalCompositeOperation = "screen";
 
-    const genX = width * 0.22, discX = width * 0.75;
+    const genX = width * 0.25, discX = width * 0.75;
     const cy = height / 2;
 
-    // Generator
-    ctx.beginPath(); ctx.arc(genX, cy, 36, 0, Math.PI * 2);
-    const pulse = Math.sin(t * 0.003) * 0.3 + 0.7;
-    ctx.fillStyle = `rgba(108,63,197,${pulse * 0.3})`; ctx.fill();
-    ctx.strokeStyle = "rgba(108,63,197,0.6)"; ctx.lineWidth = 1; ctx.stroke();
-    ctx.fillStyle = "#e8eaf6"; ctx.font = "bold 10px monospace";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText("G", genX, cy);
-    ctx.font = "9px monospace"; ctx.fillStyle = "#7080a8";
-    ctx.fillText("Generator", genX, cy + 50);
-
-    // Noise input
-    for (let n = 0; n < 8; n++) {
-      const nx = 20 + Math.random() * 30;
-      const ny = cy - 30 + Math.random() * 60;
-      const a = Math.sin(t * 0.005 + n) * 0.5 + 0.5;
-      ctx.beginPath(); ctx.arc(nx, ny, 2, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(200,200,255,${a})`; ctx.fill();
+    // Draw Generator Network (Multi-layer nodes)
+    const gNodes = [4, 6, 8, 6];
+    for(let layer = 0; layer < gNodes.length; layer++) {
+      const lx = genX - 40 + layer * 25;
+      const count = gNodes[layer]!;
+      for(let n = 0; n < count; n++) {
+        const ny = cy - (count * 12)/2 + n * 12;
+        ctx.beginPath(); ctx.arc(lx, ny, 3, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(180, 80, 255, ${0.4 + Math.sin(t*0.005 + layer)*0.4})`;
+        ctx.fill();
+        // connect to next layer
+        if(layer < gNodes.length - 1) {
+            const nextCount = gNodes[layer+1]!;
+            for(let nn = 0; nn < nextCount; nn++) {
+                const nny = cy - (nextCount * 12)/2 + nn * 12;
+                ctx.beginPath(); ctx.moveTo(lx, ny); ctx.lineTo(genX - 40 + (layer+1)*25, nny);
+                ctx.strokeStyle = `rgba(180, 80, 255, 0.05)`; ctx.stroke();
+            }
+        }
+      }
     }
 
-    // Generated samples flowing to discriminator
-    const flowPhase = (t * 0.001) % 1;
-    for (let s = 0; s < 6; s++) {
-      const fp = (flowPhase + s / 6) % 1;
-      const fx = genX + 36 + fp * (discX - genX - 72);
-      const fy = cy + Math.sin(fp * Math.PI * 2 + s) * 20;
-      const isFake = s % 2 === 0;
-      ctx.beginPath(); ctx.arc(fx, fy, 4, 0, Math.PI * 2);
-      ctx.fillStyle = isFake ? "rgba(255,107,53,0.8)" : "rgba(0,212,255,0.8)";
+    // Generator Main Core
+    ctx.beginPath(); ctx.arc(genX + 45, cy, 28, 0, Math.PI * 2);
+    const pulse = Math.sin(t * 0.003) * 0.3 + 0.7;
+    let gGrad = ctx.createRadialGradient(genX+45, cy, 0, genX+45, cy, 28);
+    gGrad.addColorStop(0, `rgba(160,80,255,${pulse})`);
+    gGrad.addColorStop(1, `rgba(60,20,120,0)`);
+    ctx.fillStyle = gGrad; ctx.fill();
+    ctx.strokeStyle = "rgba(180,100,255,0.6)"; ctx.lineWidth = 1; ctx.stroke();
+    
+    ctx.fillStyle = "#e8eaf6"; ctx.font = "bold 11px monospace";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("G-NET", genX + 45, cy);
+    ctx.font = "9px monospace"; ctx.fillStyle = "#90a0c8";
+    ctx.fillText("Generator Maps", genX + 45, cy + 45);
+
+    // Noise latent vector input to G
+    for (let n = 0; n < 20; n++) {
+      const nx = genX - 80 + Math.random() * 20;
+      const ny = cy - 40 + Math.random() * 80;
+      const a = Math.sin(t * 0.01 + n) * 0.5 + 0.5;
+      ctx.beginPath(); ctx.arc(nx, ny, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(200,240,255,${a})`; ctx.fill();
+    }
+
+    // Generated samples flowing to discriminator (Intense Particle Flow)
+    const flowPhase = (t * 0.002) % 1;
+    for (let s = 0; s < 40; s++) {
+      const fp = (flowPhase + s / 40) % 1;
+      const fx = genX + 75 + fp * (discX - genX - 120);
+      const fy = cy + Math.sin(fp * Math.PI * 4 + s) * 15 * Math.sin(fp * Math.PI);
+      const isFake = s % 3 !== 0; // mostly fakes from G
+      ctx.beginPath(); ctx.arc(fx, fy, isFake ? 2.5 : 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = isFake ? `rgba(255,80,180,${Math.sin(fp*Math.PI)})` : `rgba(0,255,180,${Math.sin(fp*Math.PI)})`;
       ctx.fill();
     }
 
-    // Discriminator
-    ctx.beginPath(); ctx.arc(discX, cy, 36, 0, Math.PI * 2);
-    const dpulse = Math.sin(t * 0.003 + 1) * 0.3 + 0.7;
-    ctx.fillStyle = `rgba(0,212,255,${dpulse * 0.25})`; ctx.fill();
-    ctx.strokeStyle = "rgba(0,212,255,0.5)"; ctx.lineWidth = 1; ctx.stroke();
-    ctx.fillStyle = "#e8eaf6"; ctx.font = "bold 10px monospace";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText("D", discX, cy);
-    ctx.font = "9px monospace"; ctx.fillStyle = "#7080a8";
-    ctx.fillText("Discriminator", discX, cy + 50);
+    // Real Data Input flowing to Discriminator
+    for (let s = 0; s < 15; s++) {
+        const fp = (flowPhase + s / 15) % 1;
+        const fx = discX - 45 - Math.cos(fp * Math.PI / 2) * 50;
+        const fy = cy - 80 + fp * 80;
+        ctx.beginPath(); ctx.arc(fx, fy, 3, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0,255,180,${fp})`; ctx.fill();
+    }
+    ctx.fillStyle = "#00ffb4"; ctx.font = "10px monospace";
+    ctx.fillText("Real Data", discX - 60, cy - 90);
 
-    // Real/Fake label
-    const decision = Math.sin(t * 0.004) > 0 ? "FAKE" : "REAL";
-    ctx.fillStyle = decision === "FAKE" ? "#ff6b35" : "#00ff88";
-    ctx.font = "bold 11px monospace"; ctx.textBaseline = "middle";
-    ctx.fillText(decision, discX + 55, cy);
+    // Draw Discriminator Network
+    const dNodes = [8, 6, 4, 1];
+    for(let layer = 0; layer < dNodes.length; layer++) {
+      const lx = discX + 25 + layer * 20;
+      const count = dNodes[layer]!;
+      for(let n = 0; n < count; n++) {
+        const ny = cy - (count * 12)/2 + n * 12;
+        ctx.beginPath(); ctx.arc(lx, ny, 3, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 200, 255, ${0.4 + Math.sin(t*0.005 + layer)*0.4})`;
+        ctx.fill();
+        if(layer < dNodes.length - 1) {
+            const nextCount = dNodes[layer+1]!;
+            for(let nn = 0; nn < nextCount; nn++) {
+                const nny = cy - (nextCount * 12)/2 + nn * 12;
+                ctx.beginPath(); ctx.moveTo(lx, ny); ctx.lineTo(discX + 25 + (layer+1)*20, nny);
+                ctx.strokeStyle = `rgba(0, 200, 255, 0.05)`; ctx.stroke();
+            }
+        }
+      }
+    }
 
-    // Loss values
+    // Discriminator Core
+    ctx.beginPath(); ctx.arc(discX - 15, cy, 28, 0, Math.PI * 2);
+    const dpulse = Math.sin(t * 0.004 + 1) * 0.3 + 0.7;
+    let dGrad = ctx.createRadialGradient(discX-15, cy, 0, discX-15, cy, 28);
+    dGrad.addColorStop(0, `rgba(0,200,255,${dpulse})`);
+    dGrad.addColorStop(1, `rgba(0,50,100,0)`);
+    ctx.fillStyle = dGrad; ctx.fill();
+    ctx.strokeStyle = "rgba(0,255,255,0.6)"; ctx.lineWidth = 1; ctx.stroke();
+    
+    ctx.fillStyle = "#e8eaf6"; ctx.font = "bold 11px monospace";
+    ctx.fillText("D-NET", discX - 15, cy);
+    ctx.font = "9px monospace"; ctx.fillStyle = "#90a0c8";
+    ctx.fillText("Discriminator", discX - 15, cy + 45);
+
+    // Real/Fake Output Decision
+    const decisionWave = Math.sin(t * 0.003);
+    const decision = decisionWave > 0.2 ? "FAKE" : (decisionWave < -0.2 ? "REAL" : "THINKING...");
+    ctx.fillStyle = decision === "FAKE" ? "#ff50b4" : (decision === "REAL" ? "#00ffb4" : "#ffffff");
+    ctx.font = "bold 12px monospace"; ctx.textBaseline = "middle";
+    ctx.fillText(decision, discX + 115, cy);
+
+    ctx.globalCompositeOperation = "source-over";
+    // Loss values with high-tech bars
     const gLoss = 0.5 + Math.sin(t * 0.002) * 0.3;
     const dLoss = 0.5 - Math.sin(t * 0.002) * 0.2;
-    ctx.fillStyle = "#6c3fc5"; ctx.font = "9px monospace"; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
-    ctx.fillText(`G loss: ${gLoss.toFixed(2)}`, genX, cy - 55);
+    
+    ctx.fillStyle = "rgba(10,20,30,0.8)";
+    ctx.fillRect(genX - 15, cy + 65, 120, 30);
+    ctx.fillRect(discX - 75, cy + 65, 120, 30);
+    
+    ctx.fillStyle = "#a050ff"; ctx.font = "10px monospace"; ctx.textAlign = "left";
+    ctx.fillText(`G-Loss: ${gLoss.toFixed(3)}`, genX - 5, cy + 75);
+    ctx.fillRect(genX - 5, cy + 82, gLoss * 80, 4);
+
     ctx.fillStyle = "#00d4ff";
-    ctx.fillText(`D loss: ${dLoss.toFixed(2)}`, discX, cy - 55);
+    ctx.fillText(`D-Loss: ${dLoss.toFixed(3)}`, discX - 65, cy + 75);
+    ctx.fillRect(discX - 65, cy + 82, dLoss * 80, 4);
 
     animRef.current = requestAnimationFrame(draw);
   }, [width, height]);
@@ -84,7 +158,7 @@ export default function GANVisualizer({ width = 600, height = 280 }: GANVisualiz
   }, [draw]);
 
   return (
-    <div style={{ background: "#03040a", borderRadius: 8 }} role="img" aria-label="GAN training visualizer">
+    <div style={{ background: "#020408", borderRadius: 8, boxShadow: "0 0 20px rgba(100,50,255,0.15)" }} role="img" aria-label="GAN training visualizer">
       <canvas ref={canvasRef} width={width} height={height} style={{ display: "block" }} />
     </div>
   );

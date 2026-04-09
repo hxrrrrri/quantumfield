@@ -64,8 +64,8 @@ fn gravity_force(i: u32) -> vec2<f32> {
     let cx = params.canvasW * 0.5;
     let cy = params.canvasH * 0.5;
 
-    // Sample a subset of neighbors for N² → approx
-    let step = max(1u, params.count / 64u);
+    // Sample a subset of neighbors for N² → approx (Optimized for low-end PC butter-smooth visuals via larger stride interpolation)
+    let step = max(1u, params.count / 256u);
     for (var j: u32 = 0u; j < params.count; j += step) {
         if j == i { continue; }
         let dx = particles[j].px - px;
@@ -175,6 +175,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Integrate position
     p.px = p.px + p.vx * DT;
     p.py = p.py + p.vy * DT;
+
+    // Hard bounds wrapping
+    // If bounded values become NaN/inf due to massive DT or force, clamp them
+    if (p.px < -10000.0 || p.px > 10000.0) { p.px = params.canvasW * 0.5; p.vx = 0.0; }
+    if (p.py < -10000.0 || p.py > 10000.0) { p.py = params.canvasH * 0.5; p.vy = 0.0; }
 
     // Wrap boundaries
     p.px = wrap(p.px, 0.0, params.canvasW);

@@ -8,6 +8,7 @@ const CosmicSidebar = dynamic(() => import("@/components/ui/CosmicSidebar"),    
 const TopBar        = dynamic(() => import("@/components/ui/TopBar"),               { ssr: false });
 const InfoOverlay   = dynamic(() => import("@/components/ui/InfoOverlay"),          { ssr: false });
 const PresetInsightPanel = dynamic(() => import("@/components/ui/PresetInsightPanel"), { ssr: false });
+const MediaStudio = dynamic(() => import("@/components/media/MediaStudio"), { ssr: false });
 
 function LoadingScreen() {
   return (
@@ -31,6 +32,7 @@ function LoadingScreen() {
 export default function SimulatorPage() {
   const insightPanelOpen = useSimulatorStore((s) => s.annPanelOpen);
   const sidebarOpen = useSimulatorStore((s) => s.sidebarOpen);
+  const mediaStudioOpen = useSimulatorStore((s) => s.mediaStudioOpen);
 
   return (
     <main
@@ -42,6 +44,7 @@ export default function SimulatorPage() {
         <TopBar/>
         <CosmicSidebar/>
         <InfoOverlay/>
+        {mediaStudioOpen && <MediaStudio />}
 
         {insightPanelOpen && (
           <section

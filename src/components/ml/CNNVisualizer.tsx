@@ -42,9 +42,9 @@ function lerp(a: number, b: number, t: number): number {
 
 function colorHeat(v: number): string {
   const n = Math.max(0, Math.min(1, v));
-  const r = Math.round(lerp(18, 255, n));
-  const g = Math.round(lerp(30, 180, n));
-  const b = Math.round(lerp(80, 24, n));
+  const r = Math.round(lerp(10, 50, n));
+  const g = Math.round(lerp(30, 240, n));
+  const b = Math.round(lerp(80, 255, n));
   return `rgb(${r},${g},${b})`;
 }
 
@@ -77,7 +77,9 @@ function drawMatrix(
     for (let x = 0; x < matrix[0]!.length; x++) {
       const v = matrix[y]![x] ?? 0;
       ctx.fillStyle = colorHeat(v);
-      ctx.fillRect(x0 + x * cell, y0 + y * cell, cell - 1, cell - 1);
+      ctx.beginPath();
+      ctx.arc(x0 + x * cell + cell / 2, y0 + y * cell + cell / 2, cell * 0.4, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 }
@@ -123,7 +125,10 @@ export default function CNNVisualizer({ width = 920, height = 360 }: CNNVisualiz
       }
     }
     const act = Math.max(0, Math.tanh(sum * 1.8) * 0.5 + 0.5);
-    conv[outY]![outX] = conv[outY]![outX] * 0.82 + act * 0.18;
+    const cRow = conv[outY];
+    if(cRow && cRow[outX] !== undefined) {
+      cRow[outX] = cRow[outX]! * 0.82 + act * 0.18;
+    }
 
     for (let py = 0; py < POOL_SIZE; py++) {
       for (let px = 0; px < POOL_SIZE; px++) {
@@ -133,7 +138,10 @@ export default function CNNVisualizer({ width = 920, height = 360 }: CNNVisualiz
             maxV = Math.max(maxV, conv[py * POOL_STRIDE + yy]?.[px * POOL_STRIDE + xx] ?? 0);
           }
         }
-        pool[py]![px] = pool[py]![px] * 0.88 + maxV * 0.12;
+      const pRow = pool[py];
+      if(pRow && pRow[px] !== undefined) {
+        pRow[px] = pRow[px]! * 0.88 + maxV * 0.12;
+      }
       }
     }
 

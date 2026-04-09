@@ -75,6 +75,12 @@ const CMAPS: Record<string, (t: number) => [number, number, number]> = {
   aurora: (t)=>interp([[9,18,46],[30,84,123],[42,163,125],[137,228,87],[198,255,170]],t),
   rainbow:(t)=>interp([[255,0,80],[255,100,0],[200,220,0],[0,220,80],[0,180,255],[150,0,255]],t),
   neon:   (t)=>interp([[0,255,200],[0,150,255],[200,0,255],[255,0,150],[255,200,0]],t),
+  spark:  (t)=>interp([[10,0,5],[80,10,15],[200,80,20],[255,180,50],[255,255,255]],t),
+  ink:    (t)=>interp([[240,245,250],[180,190,200],[100,110,120],[40,50,60],[10,15,20]],t),
+  paint:  (t)=>interp([[255,50,50],[50,255,50],[50,50,255],[255,255,50],[255,50,255]],t),
+  steel:  (t)=>interp([[15,20,25],[40,50,60],[90,100,110],[160,170,180],[220,230,240]],t),
+  glass:  (t)=>interp([[5,20,30],[30,80,100],[100,180,210],[180,230,250],[240,250,255]],t),
+  vector: (t)=>interp([[0,0,0],[255,0,0],[0,255,0],[0,0,255],[255,255,255]],t),
 };
 function interp(s:[number,number,number][],t:number):[number,number,number]{
   const tt=Math.max(0,Math.min(1,t));
@@ -528,6 +534,21 @@ interface ImagePoint {
   g: number;
   b: number;
   a: number;
+}
+
+interface ImageTransformState {
+  zoom: number;
+  rotateDeg: number;
+  tiltDeg: number;
+  panX: number;
+  panY: number;
+}
+
+interface ParticleCloudEvent {
+  positions: Float32Array | number[];
+  colors?: Float32Array | number[];
+  masses?: Float32Array | number[];
+  count?: number;
 }
 
 function extractOpaqueImagePoints(imageData: ImageData, srcW: number, srcH: number): { all: ImagePoint[]; edges: ImagePoint[] } {
@@ -1058,8 +1079,10 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   const ambientRef = useRef<AmbientField | null>(null);
   const textTargetsRef=useRef<Float32Array|null>(null);
   const imgTargetsRef=useRef<{tx:Float32Array;ty:Float32Array}|null>(null);
+  const imgBaseTargetsRef=useRef<{tx:Float32Array;ty:Float32Array;cx:number;cy:number}|null>(null);
   const shapeModeRef=useRef(false);
   const imgModeRef=useRef(false);
+  const imgTransformRef=useRef<ImageTransformState>({ zoom: 1, rotateDeg: 0, tiltDeg: 0, panX: 0, panY: 0 });
   const currentShapeRef=useRef("sphere");
   const shapeCameraRef = useRef<ShapeCameraState>({
     yaw: 0,
@@ -1080,7 +1103,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   });
   const shapeAutoYawRef = useRef(0);
   const lastTextRef = useRef<string>("QUANTUM");
-  const lastImageDataRef = useRef<{ data: ImageData; w: number; h: number; exact: boolean } | null>(null);
+  const lastImageDataRef = useRef<{ data: ImageData; w: number; h: number; exact: boolean; targetCount?: number; stream?: boolean } | null>(null);
   const renderTuningRef = useRef<RenderTuningState>({ brightness: 1, glow: 1 });
   const cursorFieldRef = useRef<CursorFieldState>({ enabled: false, strength: 0.85, radius: 1 });
   const forceModeRef=useRef<"attract"|"repel"|"orbit">("attract");
@@ -1089,6 +1112,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   const fpsRef=useRef({frames:0,acc:0,fps:0});
   const perfRef=useRef({smoothedFps:60,frame:0});
   const mouseRef=useRef({x:0,y:0,down:false,rightDown:false,shift:false,isRotating:false,inside:false});
+  const imgDragRef=useRef({dragging:false,lastX:0,lastY:0});
   // image colormap override (per-particle RGB when using image mode)
   const imgColorsRef=useRef<{r:Uint8Array;g:Uint8Array;b:Uint8Array}|null>(null);
 
@@ -1099,8 +1123,8 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   const refreshCursor = useCallback(() => {
     const c = canvasRef.current;
     if(!c) return;
-    if(shapeCameraRef.current.dragging) c.style.cursor = "grabbing";
-    else if(shapeModeRef.current) c.style.cursor = "grab";
+    if(shapeCameraRef.current.dragging || imgDragRef.current.dragging) c.style.cursor = "grabbing";
+    else if(shapeModeRef.current || imgModeRef.current) c.style.cursor = "grab";
     else c.style.cursor = "crosshair";
   }, [canvasRef]);
 
@@ -1144,6 +1168,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
 
     textTargetsRef.current=null;
     imgTargetsRef.current=null;
+    imgBaseTargetsRef.current=null;
     imgModeRef.current=false;
     imgColorsRef.current=null;
     if (!shapeModeRef.current) {
@@ -1166,6 +1191,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     textTargetsRef.current=null;
     imgModeRef.current=false;
     imgTargetsRef.current=null;
+    imgBaseTargetsRef.current=null;
     imgColorsRef.current=null;
     lastImageDataRef.current = null;
     shapeModeRef.current=false;
@@ -1213,53 +1239,222 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     shapeModeRef.current=false;
     imgModeRef.current=false;
     imgTargetsRef.current=null;
+    imgBaseTargetsRef.current=null;
     imgColorsRef.current=null;
     refreshCursor();
   }
 
   /* ── Image to particles ──────────────────────────────────────────────── */
-  function activateImage(imageData:ImageData, srcW:number, srcH:number, exactMode = false){
+  function applyImageTransformTargets(W:number,H:number){
+    const base=imgBaseTargetsRef.current;
+    const tgt=imgTargetsRef.current;
+    if(!base||!tgt) return;
+    const tr=imgTransformRef.current;
+    const zoom=clamp(tr.zoom,0.15,6);
+    const rot=(tr.rotateDeg*Math.PI)/180;
+    const tilt=(tr.tiltDeg*Math.PI)/180;
+    const cosR=Math.cos(rot),sinR=Math.sin(rot);
+    const tiltY=Math.cos(tilt);
+    const cx=base.cx+tr.panX;
+    const cy=base.cy+tr.panY;
+
+    for(let i=0;i<base.tx.length;i++){
+      const dx=(base.tx[i]??0)-base.cx;
+      const dy=((base.ty[i]??0)-base.cy)*tiltY;
+      const sx=dx*zoom;
+      const sy=dy*zoom;
+      tgt.tx[i]=cx+(sx*cosR-sy*sinR);
+      tgt.ty[i]=cy+(sx*sinR+sy*cosR);
+    }
+
+    // Keep transformed targets within bounds to avoid sudden clipping jumps.
+    for(let i=0;i<tgt.tx.length;i++){
+      tgt.tx[i]=clamp(tgt.tx[i]??0,-W*0.4,W*1.4);
+      tgt.ty[i]=clamp(tgt.ty[i]??0,-H*0.4,H*1.4);
+    }
+  }
+
+  function sampleImageForParticles(
+    imageData:ImageData,
+    srcW:number,
+    srcH:number,
+    targetCount:number,
+    exactMode:boolean
+  ){
     const{W,H}=getWH();
+    const safeTarget=Math.max(256,Math.min(200000,Math.floor(targetCount)));
     const exactPoints = exactMode ? extractOpaqueImagePoints(imageData, srcW, srcH).all : [];
-    const sampledPoints = exactMode ? exactPoints : buildAdaptiveImagePointSet(imageData, srcW, srcH, storeStateRef.current.particleCount);
-    const samples = sampledPoints.length > 0 ? sampledPoints : [{ x: srcW * 0.5, y: srcH * 0.5, r: 160, g: 180, b: 210, a: 255 }];
-    const n = exactMode ? samples.length : storeStateRef.current.particleCount;
+    const sampledPoints = exactMode
+      ? exactPoints
+      : buildAdaptiveImagePointSet(imageData, srcW, srcH, safeTarget);
+    const samples = sampledPoints.length > 0
+      ? sampledPoints
+      : [{ x: srcW * 0.5, y: srcH * 0.5, r: 160, g: 180, b: 210, a: 255 }];
+    const n = exactMode ? Math.max(1, samples.length) : safeTarget;
+
     const fitScale=Math.min(W/Math.max(1,srcW),H/Math.max(1,srcH));
     const drawW=srcW*fitScale;
     const drawH=srcH*fitScale;
     const offsetX=(W-drawW)*0.5;
     const offsetY=(H-drawH)*0.5;
 
-    const p=alloc(n);
-    const itx=new Float32Array(n),ity=new Float32Array(n);
-    const itr=new Float32Array(n),itg=new Float32Array(n),itb=new Float32Array(n);
+    const tx=new Float32Array(n);
+    const ty=new Float32Array(n);
+    const ir=new Uint8Array(n);
+    const ig=new Uint8Array(n);
+    const ib=new Uint8Array(n);
+    const pm=new Float32Array(n);
+    const pc=new Float32Array(n);
+    const pa=new Float32Array(n);
+    const ps=new Float32Array(n);
+    const pxRadius=clamp(fitScale*0.52,0.45,3.4);
 
     for(let i=0;i<n;i++){
       const src=samples[i%samples.length]!;
-      p.px[i]=Math.random()*W; p.py[i]=Math.random()*H;
-      p.pvx[i]=(Math.random()-0.5)*(exactMode?2.8:4.5);
-      p.pvy[i]=(Math.random()-0.5)*(exactMode?2.8:4.5);
+      tx[i]=offsetX+(src.x+0.5)*fitScale;
+      ty[i]=offsetY+(src.y+0.5)*fitScale;
+      ir[i]=src.r;
+      ig[i]=src.g;
+      ib[i]=src.b;
       const alpha=(src.a??255)/255;
-      p.palpha[i]=clamp(0.28+alpha*0.72,0,1);
-      itx[i]=offsetX + (src.x + 0.5) * fitScale;
-      ity[i]=offsetY + (src.y + 0.5) * fitScale;
-      itr[i]=src.r; itg[i]=src.g; itb[i]=src.b;
       const lum=(0.2126*src.r+0.7152*src.g+0.0722*src.b)/255;
-      p.pm[i]=0.35+alpha*0.35+(1-lum)*0.8;
-      p.pc[i]=clamp(lum*0.9+alpha*0.1,0,1);
-      const pxRadius=clamp(fitScale*0.52,0.45,3.4);
-      p.psize[i]=exactMode?pxRadius:(0.55+Math.random()*0.9);
+      pa[i]=clamp(0.28+alpha*0.72,0,1);
+      pm[i]=0.35+alpha*0.35+(1-lum)*0.8;
+      pc[i]=clamp(lum*0.9+alpha*0.1,0,1);
+      ps[i]=exactMode?pxRadius:(0.55+hash01(i,14.7)*0.9);
     }
 
-    imgTargetsRef.current={tx:itx,ty:ity};
-    const ir=new Uint8Array(n),ig=new Uint8Array(n),ib2=new Uint8Array(n);
-    for(let i=0;i<n;i++){ir[i]=itr[i]!;ig[i]=itg[i]!;ib2[i]=itb[i]!;}
-    imgColorsRef.current={r:ir,g:ig,b:ib2};
-    lastImageDataRef.current = { data: imageData, w: srcW, h: srcH, exact: exactMode };
+    return {
+      W,
+      H,
+      n,
+      tx,
+      ty,
+      ir,
+      ig,
+      ib,
+      pm,
+      pc,
+      pa,
+      ps,
+      cx:offsetX+drawW*0.5,
+      cy:offsetY+drawH*0.5,
+    };
+  }
+
+  function activateImage(imageData:ImageData, srcW:number, srcH:number, exactMode = false, targetCount?:number){
+    const desiredCount=Math.max(256,Math.floor(targetCount??storeStateRef.current.particleCount));
+    const sampled=sampleImageForParticles(imageData,srcW,srcH,desiredCount,exactMode);
+    const p=alloc(sampled.n);
+
+    for(let i=0;i<sampled.n;i++){
+      p.px[i]=Math.random()*sampled.W;
+      p.py[i]=Math.random()*sampled.H;
+      p.pvx[i]=(Math.random()-0.5)*(exactMode?2.4:3.8);
+      p.pvy[i]=(Math.random()-0.5)*(exactMode?2.4:3.8);
+      p.palpha[i]=sampled.pa[i]??0.9;
+      p.pm[i]=sampled.pm[i]??1;
+      p.pc[i]=sampled.pc[i]??0.5;
+      p.psize[i]=sampled.ps[i]??1;
+    }
+
+    imgTargetsRef.current={tx:new Float32Array(sampled.n),ty:new Float32Array(sampled.n)};
+    imgBaseTargetsRef.current={tx:sampled.tx,ty:sampled.ty,cx:sampled.cx,cy:sampled.cy};
+    imgColorsRef.current={r:sampled.ir,g:sampled.ig,b:sampled.ib};
     pRef.current=p;
+
     shapeModeRef.current=false;
     imgModeRef.current=true;
     textTargetsRef.current=null;
+    applyImageTransformTargets(sampled.W,sampled.H);
+    lastImageDataRef.current = { data: imageData, w: srcW, h: srcH, exact: exactMode, targetCount: desiredCount, stream: false };
+    refreshCursor();
+  }
+
+  function updateImageTargets(imageData:ImageData, srcW:number, srcH:number, exactMode = false, targetCount?:number){
+    const active=pRef.current;
+    const desiredCount=Math.max(256,Math.floor(targetCount??active?.count??storeStateRef.current.particleCount));
+    const sampled=sampleImageForParticles(imageData,srcW,srcH,desiredCount,exactMode);
+    if(!active||!imgModeRef.current||sampled.n!==active.count){
+      activateImage(imageData,srcW,srcH,exactMode,desiredCount);
+      return;
+    }
+
+    imgBaseTargetsRef.current={tx:sampled.tx,ty:sampled.ty,cx:sampled.cx,cy:sampled.cy};
+    if(!imgTargetsRef.current||imgTargetsRef.current.tx.length!==active.count){
+      imgTargetsRef.current={tx:new Float32Array(active.count),ty:new Float32Array(active.count)};
+    }
+
+    if(!imgColorsRef.current||imgColorsRef.current.r.length!==active.count){
+      imgColorsRef.current={r:new Uint8Array(active.count),g:new Uint8Array(active.count),b:new Uint8Array(active.count)};
+    }
+
+    const imgC=imgColorsRef.current;
+    for(let i=0;i<active.count;i++){
+      imgC.r[i]=sampled.ir[i]??128;
+      imgC.g[i]=sampled.ig[i]??128;
+      imgC.b[i]=sampled.ib[i]??128;
+      active.palpha[i]=sampled.pa[i]??0.9;
+      active.pm[i]=sampled.pm[i]??1;
+      active.pc[i]=sampled.pc[i]??0.5;
+      active.psize[i]=sampled.ps[i]??active.psize[i]??1;
+    }
+
+    applyImageTransformTargets(sampled.W,sampled.H);
+    lastImageDataRef.current = { data: imageData, w: srcW, h: srcH, exact: exactMode, targetCount: desiredCount, stream: true };
+  }
+
+  function activateParticleCloud(payload:ParticleCloudEvent){
+    const pos = payload.positions instanceof Float32Array
+      ? payload.positions
+      : new Float32Array(payload.positions);
+    const count = Math.max(0, Math.min(payload.count ?? Math.floor(pos.length / 2), Math.floor(pos.length / 2)));
+    if(count < 1) return;
+
+    const colors = payload.colors
+      ? payload.colors instanceof Float32Array ? payload.colors : new Float32Array(payload.colors)
+      : null;
+    const masses = payload.masses
+      ? payload.masses instanceof Float32Array ? payload.masses : new Float32Array(payload.masses)
+      : null;
+
+    const p=alloc(count);
+    const{W,H}=getWH();
+    for(let i=0;i<count;i++){
+      const x=pos[i*2]??W*0.5;
+      const y=pos[i*2+1]??H*0.5;
+      p.px[i]=x;
+      p.py[i]=y;
+      p.tx[i]=x;
+      p.ty[i]=y;
+      p.pvx[i]=(Math.random()-0.5)*0.5;
+      p.pvy[i]=(Math.random()-0.5)*0.5;
+      p.pm[i]=clamp(masses?.[i]??1,0.08,10);
+      if(colors&&colors.length>=i*4+3){
+        const rr=colors[i*4]??1;
+        const gg=colors[i*4+1]??1;
+        const bb=colors[i*4+2]??1;
+        const aa=colors[i*4+3]??1;
+        const r=rr>1?rr/255:rr;
+        const g=gg>1?gg/255:gg;
+        const b=bb>1?bb/255:bb;
+        p.pc[i]=clamp(0.2126*r+0.7152*g+0.0722*b,0,1);
+        p.palpha[i]=clamp(aa>1?aa/255:aa,0.25,1);
+      }else{
+        p.pc[i]=Math.random();
+        p.palpha[i]=0.85;
+      }
+      p.psize[i]=0.72+Math.random()*0.55;
+    }
+
+    pRef.current=p;
+    shapeModeRef.current=false;
+    imgModeRef.current=false;
+    textTargetsRef.current=null;
+    imgTargetsRef.current=null;
+    imgBaseTargetsRef.current=null;
+    imgColorsRef.current=null;
+    lastImageDataRef.current=null;
     refreshCursor();
   }
 
@@ -1340,6 +1535,16 @@ export function useParticleEngine({canvasRef}:EngineOptions){
         return;
       }
 
+      if (e.button === 0 && imgModeRef.current) {
+        imgDragRef.current.dragging = true;
+        imgDragRef.current.lastX = e.clientX;
+        imgDragRef.current.lastY = e.clientY;
+        mouseRef.current.isRotating = true;
+        refreshCursor();
+        e.preventDefault();
+        return;
+      }
+
       if (e.button === 0 || e.button === 2) {
         mouseRef.current.down = true;
         mouseRef.current.rightDown = e.button === 2;
@@ -1348,6 +1553,23 @@ export function useParticleEngine({canvasRef}:EngineOptions){
 
     const onMouseMove = (e: MouseEvent) => {
       toLocal(e.clientX, e.clientY);
+      if (imgDragRef.current.dragging && imgModeRef.current) {
+        const dx = e.clientX - imgDragRef.current.lastX;
+        const dy = e.clientY - imgDragRef.current.lastY;
+        imgDragRef.current.lastX = e.clientX;
+        imgDragRef.current.lastY = e.clientY;
+        if (e.shiftKey) {
+          imgTransformRef.current.rotateDeg = clamp(imgTransformRef.current.rotateDeg + dx * 0.35, -180, 180);
+          imgTransformRef.current.tiltDeg = clamp(imgTransformRef.current.tiltDeg + dy * 0.2, -88, 88);
+        } else {
+          imgTransformRef.current.panX = clamp(imgTransformRef.current.panX + dx, -4000, 4000);
+          imgTransformRef.current.panY = clamp(imgTransformRef.current.panY + dy, -4000, 4000);
+        }
+        const { W, H } = getWH();
+        applyImageTransformTargets(W, H);
+        return;
+      }
+
       const cam = shapeCameraRef.current;
       if (!cam.dragging) return;
 
@@ -1362,6 +1584,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     const onMouseUp = (e: MouseEvent) => {
       if (e.button === 0) {
         shapeCameraRef.current.dragging = false;
+        imgDragRef.current.dragging = false;
         mouseRef.current.isRotating = false;
       }
       if (e.button === 0 || e.button === 2) {
@@ -1372,6 +1595,14 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     };
 
     const onWheel = (e: WheelEvent) => {
+      if (imgModeRef.current) {
+        e.preventDefault();
+        const dir = Math.sign(e.deltaY);
+        imgTransformRef.current.zoom = clamp(imgTransformRef.current.zoom - dir * 0.08, 0.15, 6);
+        const { W, H } = getWH();
+        applyImageTransformTargets(W, H);
+        return;
+      }
       if (!shapeModeRef.current) return;
       e.preventDefault();
       const cam = shapeCameraRef.current;
@@ -1405,6 +1636,11 @@ export function useParticleEngine({canvasRef}:EngineOptions){
         mouseRef.current.isRotating = true;
         mouseRef.current.down = false;
         refreshCursor();
+      } else if (imgModeRef.current) {
+        imgDragRef.current.dragging = true;
+        imgDragRef.current.lastX = touch.clientX;
+        imgDragRef.current.lastY = touch.clientY;
+        mouseRef.current.isRotating = true;
       } else {
         mouseRef.current.down = true;
       }
@@ -1415,6 +1651,19 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       const touch = e.touches[0];
       if (!touch) return;
       toLocal(touch.clientX, touch.clientY);
+
+      if (imgDragRef.current.dragging && imgModeRef.current) {
+        const dx = touch.clientX - imgDragRef.current.lastX;
+        const dy = touch.clientY - imgDragRef.current.lastY;
+        imgDragRef.current.lastX = touch.clientX;
+        imgDragRef.current.lastY = touch.clientY;
+        imgTransformRef.current.panX = clamp(imgTransformRef.current.panX + dx, -4000, 4000);
+        imgTransformRef.current.panY = clamp(imgTransformRef.current.panY + dy, -4000, 4000);
+        const { W, H } = getWH();
+        applyImageTransformTargets(W, H);
+        e.preventDefault();
+        return;
+      }
 
       const cam = shapeCameraRef.current;
       if (cam.dragging) {
@@ -1430,6 +1679,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
 
     const onTouchEnd = () => {
       shapeCameraRef.current.dragging = false;
+      imgDragRef.current.dragging = false;
       mouseRef.current.isRotating = false;
       mouseRef.current.down = false;
       mouseRef.current.inside = false;
@@ -1515,7 +1765,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
         }
         if(imgModeRef.current&&lastImageDataRef.current){
           const{data,w,h,exact}=lastImageDataRef.current;
-          activateImage(data,w,h,exact);
+          activateImage(data,w,h,exact,next);
           return;
         }
         if(textTargetsRef.current){
@@ -1527,8 +1777,36 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     };
     const onPhysics=(e:Event)=>{storeStateRef.current.setPhysicsMode((e as CustomEvent).detail as never);};
     const onImageData=(e:Event)=>{
-      const{data,w,h,exact}=(e as CustomEvent).detail as{data:ImageData;w:number;h:number;exact?:boolean};
-      activateImage(data,w,h,!!exact);
+      const { data, w, h, exact, stream, targetCount } = (e as CustomEvent).detail as {
+        data: ImageData;
+        w: number;
+        h: number;
+        exact?: boolean;
+        stream?: boolean;
+        targetCount?: number;
+      };
+      if(stream){
+        updateImageTargets(data,w,h,!!exact,targetCount);
+        return;
+      }
+      activateImage(data,w,h,!!exact,targetCount);
+    };
+    const onImageTransform=(e:Event)=>{
+      const detail=(e as CustomEvent).detail as Partial<ImageTransformState>;
+      imgTransformRef.current={
+        zoom: clamp(detail.zoom ?? imgTransformRef.current.zoom, 0.15, 6),
+        rotateDeg: clamp(detail.rotateDeg ?? imgTransformRef.current.rotateDeg, -180, 180),
+        tiltDeg: clamp(detail.tiltDeg ?? imgTransformRef.current.tiltDeg, -88, 88),
+        panX: clamp(detail.panX ?? imgTransformRef.current.panX, -4000, 4000),
+        panY: clamp(detail.panY ?? imgTransformRef.current.panY, -4000, 4000),
+      };
+      if(imgModeRef.current){
+        const{W,H}=getWH();
+        applyImageTransformTargets(W,H);
+      }
+    };
+    const onParticleCloud=(e:Event)=>{
+      activateParticleCloud((e as CustomEvent).detail as ParticleCloudEvent);
     };
 
     window.addEventListener("qf:loadPreset",onPreset);
@@ -1543,6 +1821,8 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     window.addEventListener("qf:particleCount",onPCount);
     window.addEventListener("qf:physicsMode",onPhysics);
     window.addEventListener("qf:imageData",onImageData);
+    window.addEventListener("qf:imageTransform",onImageTransform);
+    window.addEventListener("qf:particleCloud",onParticleCloud);
     return()=>{
       window.removeEventListener("qf:loadPreset",onPreset);
       window.removeEventListener("qf:loadShape",onShape);
@@ -1556,6 +1836,8 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       window.removeEventListener("qf:particleCount",onPCount);
       window.removeEventListener("qf:physicsMode",onPhysics);
       window.removeEventListener("qf:imageData",onImageData);
+      window.removeEventListener("qf:imageTransform",onImageTransform);
+      window.removeEventListener("qf:particleCloud",onParticleCloud);
     };
   },[]);// eslint-disable-line react-hooks/exhaustive-deps
 

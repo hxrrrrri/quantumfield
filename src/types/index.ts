@@ -40,7 +40,13 @@ export type ColormapName =
   | "fire"
   | "aurora"
   | "rainbow"
-  | "neon";
+  | "neon"
+  | "spark"
+  | "ink"
+  | "paint"
+  | "steel"
+  | "glass"
+  | "vector";
 
 export type PresetName =
   | "bigbang"
@@ -106,6 +112,7 @@ export interface SimulatorState {
   showEquation: boolean;
   showStats: boolean;
   annPanelOpen: boolean;
+  mediaStudioOpen: boolean;
 }
 
 export interface PhysicsParams {

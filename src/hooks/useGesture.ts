@@ -124,7 +124,7 @@ export function useGesture(): {
         minTrackingConfidence: 0.5,
       });
 
-      hands.onResults((results: { multiHandLandmarks?: number[][][] }) => {
+      hands.onResults((results: any) => {
         if (!results.multiHandLandmarks?.length) {
           setGestureState((s) => ({
             ...s,
@@ -136,7 +136,7 @@ export function useGesture(): {
         }
 
         const lm = results.multiHandLandmarks[0]!;
-        const flatLm = lm.map((p) => [p[0]!, p[1]!, p[2] ?? 0]);
+        const flatLm = lm.map((p: any) => [p[0]!, p[1]!, p[2] ?? 0]);
         const palm = flatLm[9]!;
 
         const now = Date.now();
