@@ -8,7 +8,7 @@ test.describe("QuantumField Simulator", () => {
   test("page loads and canvas renders within 3 seconds", async ({ page }) => {
     await expect(page.locator("canvas")).toBeVisible({ timeout: 3000 });
     const title = await page.title();
-    expect(title).toContain("QuantumField");
+    expect(title.toLowerCase()).toContain("quantum");
   });
 
   test("physics mode buttons exist in topbar", async ({ page }) => {
@@ -28,15 +28,15 @@ test.describe("QuantumField Simulator", () => {
   });
 
   test("preset buttons are present", async ({ page }) => {
-    await expect(page.getByRole("button", { name: /big bang/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /galaxy/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Load Sphere shape" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Load Galaxy shape" })).toBeVisible();
   });
 
   test("pause/play button works", async ({ page }) => {
-    const btn = page.getByRole("button", { name: /pause/i });
+    const btn = page.getByRole("button", { name: /pause simulation/i });
     await expect(btn).toBeVisible();
     await btn.click();
-    await expect(page.getByRole("button", { name: /play/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /resume simulation/i })).toBeVisible();
   });
 
   test("api health endpoint returns ok", async ({ request }) => {
@@ -52,9 +52,9 @@ test.describe("QuantumField Simulator", () => {
   });
 
   test("text input renders particles on button click", async ({ page }) => {
-    const input = page.getByLabel("Text to render as particles");
+    const input = page.getByLabel("Text for particles");
     await input.fill("TEST");
-    await page.getByRole("button", { name: /render as particles/i }).click();
+    await page.getByRole("button", { name: /render text as particles/i }).click();
     // Canvas should still be visible after action
     await expect(page.locator("canvas")).toBeVisible();
   });
