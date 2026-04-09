@@ -35,6 +35,8 @@ interface SimulatorActions {
   setGestureEnabled: (e: boolean) => void;
   toggleEquation: () => void;
   toggleStats: () => void;
+  setANNPanelOpen: (open: boolean) => void;
+  toggleANNPanel: () => void;
   reset: () => void;
 }
 
@@ -45,7 +47,7 @@ const DEFAULT_STATE: SimulatorState = {
   particleCount: 50000,
   timeScale: 1.0,
   gravityG: 1.0,
-  bloomIntensity: 0.6,
+  bloomIntensity: 0,
   trailDecay: 0.85,
   particleSize: 1.8,
   activePreset: "galaxy",
@@ -61,6 +63,7 @@ const DEFAULT_STATE: SimulatorState = {
   gestureEnabled: false,
   showEquation: true,
   showStats: true,
+  annPanelOpen: false,
 };
 
 export const useSimulatorStore = create<SimulatorState & SimulatorActions>()(
@@ -92,6 +95,8 @@ export const useSimulatorStore = create<SimulatorState & SimulatorActions>()(
     setGestureEnabled: (e) => set({ gestureEnabled: e }),
     toggleEquation: () => set((s) => ({ showEquation: !s.showEquation })),
     toggleStats: () => set((s) => ({ showStats: !s.showStats })),
+    setANNPanelOpen: (open) => set({ annPanelOpen: open }),
+    toggleANNPanel: () => set((s) => ({ annPanelOpen: !s.annPanelOpen })),
     reset: () => set(DEFAULT_STATE),
   }))
 );

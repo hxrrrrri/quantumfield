@@ -11,18 +11,8 @@ const MODES: Array<{ id: PhysicsMode; label: string }> = [
   { id: "future",     label: "Future"     },
 ];
 
-const PHYSICS_INFO: Record<string, { label: string; eq: string }> = {
-  classical:  { label: "NEWTONIAN GRAVITY",   eq: "F = Gm₁m₂ / r²"            },
-  quantum:    { label: "QUANTUM WAVEFUNCTION", eq: "iℏ∂ψ/∂t = Ĥψ"             },
-  relativity: { label: "SPECIAL RELATIVITY",  eq: "γ = 1/√(1−v²/c²)"          },
-  fluid:      { label: "SPH FLUID DYNAMICS",  eq: "ρ(r) = Σmⱼ·W(r−rⱼ,h)"     },
-  em:         { label: "LORENTZ EM FORCE",    eq: "F = q(E + v×B)"             },
-  future:     { label: "STRING THEORY",       eq: "S = −1/(2α′)∫d²σ·∂Xᵘ∂Xᵤ" },
-};
-
 export default function TopBar() {
   const store = useSimulatorStore();
-  const info = PHYSICS_INFO[store.physicsMode] ?? PHYSICS_INFO["classical"]!;
 
   const handleMode = (id: PhysicsMode) => {
     store.setPhysicsMode(id);
@@ -110,6 +100,27 @@ export default function TopBar() {
 
       {/* Right controls */}
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <button
+          onClick={() => store.toggleANNPanel()}
+          style={{
+            background: store.annPanelOpen ? "rgba(0,255,176,0.12)" : "rgba(0,255,176,0.05)",
+            border: `1px solid ${store.annPanelOpen ? "rgba(0,255,176,0.5)" : "rgba(0,255,176,0.26)"}`,
+            color: store.annPanelOpen ? "#00ffb0" : "rgba(0,255,176,0.84)",
+            fontFamily: "var(--font-space-grotesk), sans-serif",
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            padding: "5px 10px",
+            borderRadius: 3,
+            cursor: "pointer",
+            transition: "all 0.2s",
+          }}
+          aria-pressed={store.annPanelOpen}
+          aria-label="Toggle ANN visualization panel"
+        >
+          ANN {store.annPanelOpen ? "ON" : "OFF"}
+        </button>
         <button
           onClick={() => {
             store.setRunning(!store.isRunning);

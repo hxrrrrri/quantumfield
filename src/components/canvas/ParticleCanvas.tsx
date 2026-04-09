@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect } from "react";
 import { useSimulatorStore } from "@/store/simulatorStore";
 import { useParticleEngine } from "./useParticleEngine";
 
@@ -41,23 +41,6 @@ export default function ParticleCanvas() {
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, [explode, reinit, store, mouseRef]);
 
-  const onMouseMove = useCallback((e: React.MouseEvent) => {
-    const r = canvasRef.current?.getBoundingClientRect();
-    if (!r) return;
-    mouseRef.current.x = e.clientX - r.left;
-    mouseRef.current.y = e.clientY - r.top;
-  }, [mouseRef]);
-
-  const onTouchMove = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
-    const touch = e.touches[0];
-    if (!touch) return;
-    const r = canvasRef.current?.getBoundingClientRect();
-    if (!r) return;
-    mouseRef.current.x = touch.clientX - r.left;
-    mouseRef.current.y = touch.clientY - r.top;
-  }, [mouseRef]);
-
   return (
     <div
       style={{ position: "absolute", inset: 0 }}
@@ -66,21 +49,6 @@ export default function ParticleCanvas() {
       <canvas
         ref={canvasRef}
         style={{ width: "100%", height: "100%", cursor: "crosshair", display: "block" }}
-        onMouseMove={onMouseMove}
-        onMouseDown={() => { mouseRef.current.down = true; }}
-        onMouseUp={() => { mouseRef.current.down = false; }}
-        onMouseLeave={() => { mouseRef.current.down = false; }}
-        onTouchMove={onTouchMove}
-        onTouchStart={(e) => {
-          mouseRef.current.down = true;
-          const touch = e.touches[0];
-          if (!touch) return;
-          const r = canvasRef.current?.getBoundingClientRect();
-          if (!r) return;
-          mouseRef.current.x = touch.clientX - r.left;
-          mouseRef.current.y = touch.clientY - r.top;
-        }}
-        onTouchEnd={() => { mouseRef.current.down = false; }}
         aria-label="Particle simulation canvas"
       />
     </div>

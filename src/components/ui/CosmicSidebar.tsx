@@ -18,6 +18,8 @@ const COLORMAPS:[ColormapName,string][]=[
   ["viridis","linear-gradient(to right,#440154,#31688e,#35b779,#fde725)"],
   ["inferno","linear-gradient(to right,#000004,#7c2a8a,#e75c2d,#fcffa4)"],
   ["plasma","linear-gradient(to right,#0d0887,#9b179e,#ed7953,#f0f921)"],
+  ["turbo","linear-gradient(to right,#30123b,#2874f0,#2dcc70,#f8d52b,#d32f06)"],
+  ["aurora","linear-gradient(to right,#09122e,#1e557b,#2ba37d,#89e457,#c6ffaa)"],
   ["cyan","linear-gradient(to right,#020d1a,#003f5c,#00d4ff,#8ff5ff)"],
   ["fire","linear-gradient(to right,#100000,#8b0000,#ff4500,#ffff00)"],
   ["magma","linear-gradient(to right,#1a0030,#5500aa,#ac89ff,#e8d0ff)"],
@@ -39,6 +41,27 @@ const PRESETS:[PresetName,string,string,string][]=[
   ["anntraining","⊛","Neural Net","σ(z)=1/(1+e⁻ᶻ)"],
   ["tunneling","⇝","Q.Tunneling","T≈e^{-2κa}"],
 ];
+
+const PARTICLE_OPTIONS=[5000,10000,25000,50000,100000,150000,200000] as const;
+
+const COLOR_PRESETS=[
+  {id:"ion",label:"Ion",start:"#00d4ff",end:"#53ffc7"},
+  {id:"sun",label:"Solar",start:"#ffd166",end:"#ff5f00"},
+  {id:"pulse",label:"Pulse",start:"#7b61ff",end:"#ff4d8d"},
+  {id:"jade",label:"Jade",start:"#00e9a7",end:"#7dff7a"},
+  {id:"arc",label:"Arc",start:"#49c8ff",end:"#ff4784"},
+  {id:"mint",label:"Mint",start:"#98ffe0",end:"#17d9ff"},
+] as const;
+
+function hexToRgb(hex:string):[number,number,number]{
+  const raw=hex.replace("#","");
+  const full=raw.length===3?raw.split("").map(ch=>`${ch}${ch}`).join(""):raw;
+  const parsed=Number.parseInt(full,16);
+  const r=(parsed>>16)&255;
+  const g=(parsed>>8)&255;
+  const b=parsed&255;
+  return[r,g,b];
+}
 
 function Section({title,children,open=true}:{title:string;children:React.ReactNode;open?:boolean}){
   const[isOpen,setIsOpen]=useState(open);
@@ -70,9 +93,18 @@ export default function CosmicSidebar(){
   const[textInput,setTextInput]=useState("QUANTUM");
   const[activeShape,setActiveShape]=useState("galaxy");
   const[forceMode,setForceModeLocal]=useState<"attract"|"repel"|"orbit">("attract");
-  const[morphSpeed,setMorphSpeed]=useState(0.08);
+  const[morphSpeed,setMorphSpeed]=useState(0.2);
   const[imgPreview,setImgPreview]=useState<string|null>(null);
   const[imgLoading,setImgLoading]=useState(false);
+  const[customPaletteEnabled,setCustomPaletteEnabled]=useState(false);
+  const[customStart,setCustomStart]=useState("#00d4ff");
+  const[customEnd,setCustomEnd]=useState("#ff548a");
+  const[colorBrightness,setColorBrightness]=useState(1);
+  const[glowGain,setGlowGain]=useState(1);
+  const[imageExactMode,setImageExactMode]=useState(true);
+  const[cursorFieldEnabled,setCursorFieldEnabled]=useState(false);
+  const[cursorFieldStrength,setCursorFieldStrength]=useState(0.85);
+  const[cursorFieldRadius,setCursorFieldRadius]=useState(1);
   const imgInputRef=useRef<HTMLInputElement>(null);
   const dropRef=useRef<HTMLDivElement>(null);
 
@@ -81,6 +113,32 @@ export default function CosmicSidebar(){
     window.addEventListener("qf:shapeChanged",handler as EventListener);
     return()=>window.removeEventListener("qf:shapeChanged",handler as EventListener);
   },[]);
+
+  useEffect(()=>{
+    window.dispatchEvent(new CustomEvent("qf:customPalette",{
+      detail:{
+        enabled:customPaletteEnabled,
+        start:hexToRgb(customStart),
+        end:hexToRgb(customEnd),
+      }
+    }));
+  },[customPaletteEnabled,customStart,customEnd]);
+
+  useEffect(()=>{
+    window.dispatchEvent(new CustomEvent("qf:renderTuning",{
+      detail:{brightness:colorBrightness,glow:glowGain}
+    }));
+  },[colorBrightness,glowGain]);
+
+  useEffect(()=>{
+    window.dispatchEvent(new CustomEvent("qf:cursorField",{
+      detail:{enabled:cursorFieldEnabled,strength:cursorFieldStrength,radius:cursorFieldRadius}
+    }));
+  },[cursorFieldEnabled,cursorFieldStrength,cursorFieldRadius]);
+
+  useEffect(()=>()=>{
+    if(imgPreview) URL.revokeObjectURL(imgPreview);
+  },[imgPreview]);
 
   const handleShape=(shape:string)=>{
     if(shape==="text"||shape==="image") return; // handled separately
@@ -94,29 +152,44 @@ export default function CosmicSidebar(){
     window.dispatchEvent(new CustomEvent("qf:forceMode",{detail:m}));
   };
 
+  const applyParticleCount=(count:number)=>{
+    const next=Math.max(1000,Math.min(200000,Math.round(count)));
+    store.setParticleCount(next);
+    window.dispatchEvent(new CustomEvent("qf:particleCount",{detail:next}));
+  };
+
   const processImageFile=(file:File)=>{
     if(!file.type.startsWith("image/")) return;
     setImgLoading(true);
     const url=URL.createObjectURL(file);
-    setImgPreview(url);
+    setImgPreview(prev=>{if(prev)URL.revokeObjectURL(prev);return url;});
     const img=new Image();
     img.onload=()=>{
-      URL.revokeObjectURL(url);
-      // Render to offscreen canvas
-      const maxDim=300;
-      const scale=Math.min(maxDim/img.width,maxDim/img.height);
-      const w=Math.round(img.width*scale), h=Math.round(img.height*scale);
+      const particleBudget=Math.max(1000,store.particleCount);
+      const sourceArea=Math.max(1,img.width*img.height);
+      const densityBudget=imageExactMode?particleBudget:particleBudget*0.95;
+      const scaleByBudget=Math.sqrt(densityBudget/sourceArea);
+      const maxDim=720;
+      const scaleByMax=Math.min(maxDim/img.width,maxDim/img.height,1);
+      const scale=Math.max(0.04,Math.min(1,scaleByBudget,scaleByMax));
+      const w=Math.max(2,Math.round(img.width*scale));
+      const h=Math.max(2,Math.round(img.height*scale));
       const off=document.createElement("canvas");
       off.width=w; off.height=h;
       const oc=off.getContext("2d")!;
+      oc.imageSmoothingEnabled=true;
+      oc.imageSmoothingQuality="high";
       oc.drawImage(img,0,0,w,h);
       const imageData=oc.getImageData(0,0,w,h);
-      window.dispatchEvent(new CustomEvent("qf:imageData",{detail:{data:imageData,w,h}}));
+      window.dispatchEvent(new CustomEvent("qf:imageData",{detail:{data:imageData,w,h,exact:imageExactMode}}));
       setActiveShape("image");
       setImgLoading(false);
     };
-    img.onerror=()=>{setImgLoading(false);};
-    img.src=URL.createObjectURL(file);
+    img.onerror=()=>{
+      setImgLoading(false);
+      setImgPreview(prev=>{if(prev)URL.revokeObjectURL(prev);return null;});
+    };
+    img.src=url;
   };
 
   const handleDrop=(e:React.DragEvent)=>{
@@ -145,7 +218,28 @@ export default function CosmicSidebar(){
       </div>
 
       <Section title="Simulation">
-        <Slider label="Particles" value={store.particleCount} min={500} max={50000} step={500} format={v=>`${Math.round(v/1000)}k`} onChange={v=>{store.setParticleCount(Math.round(v));window.dispatchEvent(new CustomEvent("qf:particleCount",{detail:Math.round(v)}));}}/>
+        <Slider label="Particles" value={store.particleCount} min={1000} max={200000} step={1000} format={v=>v>=1000?`${(v/1000).toFixed(v<10000?1:0)}k`:`${Math.round(v)}`} onChange={applyParticleCount}/>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:8}}>
+          {PARTICLE_OPTIONS.map((count)=>(
+            <button
+              key={count}
+              onClick={()=>applyParticleCount(count)}
+              style={{
+                padding:"4px 2px",
+                borderRadius:3,
+                border:`1px solid ${store.particleCount===count?"rgba(143,245,255,0.5)":"rgba(143,245,255,0.1)"}`,
+                background:store.particleCount===count?"rgba(143,245,255,0.08)":"rgba(18,19,25,0.78)",
+                color:store.particleCount===count?"var(--primary)":"var(--text-dim)",
+                fontFamily:"monospace",
+                fontSize:8,
+                cursor:"pointer",
+              }}
+              aria-label={`Set particles to ${count.toLocaleString()}`}
+            >
+              {count>=1000?`${Math.round(count/1000)}k`:count}
+            </button>
+          ))}
+        </div>
         <Slider label="Time Scale" value={store.timeScale} min={0.1} max={5} step={0.1} unit="×" onChange={store.setTimeScale}/>
         <Slider label="Gravity G" value={store.gravityG} min={0} max={5} step={0.1} onChange={store.setGravityG}/>
       </Section>
@@ -173,7 +267,7 @@ export default function CosmicSidebar(){
             );
           })}
         </div>
-        <Slider label="Morph Speed" value={morphSpeed} min={0.01} max={0.25} step={0.01} onChange={v=>{setMorphSpeed(v);window.dispatchEvent(new CustomEvent("qf:morphSpeed",{detail:v}));}}/>
+        <Slider label="Morph Speed" value={morphSpeed} min={0.05} max={0.6} step={0.01} onChange={v=>{setMorphSpeed(v);window.dispatchEvent(new CustomEvent("qf:morphSpeed",{detail:v}));}}/>
         <input ref={imgInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)processImageFile(f);}}/>
       </Section>
 
@@ -206,8 +300,31 @@ export default function CosmicSidebar(){
             )}
           </div>
         </div>
+        <button
+          onClick={()=>setImageExactMode(v=>!v)}
+          style={{
+            width:"100%",
+            padding:"6px",
+            marginBottom:6,
+            borderRadius:4,
+            border:`1px solid ${imageExactMode?"rgba(0,255,176,0.46)":"rgba(143,245,255,0.16)"}`,
+            background:imageExactMode?"rgba(0,255,176,0.08)":"rgba(18,19,25,0.78)",
+            color:imageExactMode?"#00ffb0":"var(--text-dim)",
+            fontFamily:"monospace",
+            fontSize:8,
+            letterSpacing:"0.08em",
+            textTransform:"uppercase",
+            cursor:"pointer",
+          }}
+          aria-pressed={imageExactMode}
+        >
+          {imageExactMode?"Exact Image Mode: ON":"Exact Image Mode: OFF"}
+        </button>
+        <div style={{fontFamily:"monospace",fontSize:8,color:"rgba(143,245,255,0.42)",marginBottom:6,lineHeight:1.4}}>
+          Exact mode maps particles directly to image pixels at processed resolution for photo-faithful reconstruction.
+        </div>
         {activeShape==="image"&&(
-          <button onClick={()=>{setActiveShape("galaxy");setImgPreview(null);window.dispatchEvent(new CustomEvent("qf:loadShape",{detail:"galaxy"}));}} style={{width:"100%",padding:"5px",background:"rgba(255,107,53,0.07)",border:"1px solid rgba(255,107,53,0.25)",color:"#ff6b35",fontFamily:"monospace",fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",borderRadius:3,cursor:"pointer",transition:"all 0.15s"}}>
+          <button onClick={()=>{setActiveShape("galaxy");setImgPreview(prev=>{if(prev)URL.revokeObjectURL(prev);return null;});window.dispatchEvent(new CustomEvent("qf:loadShape",{detail:"galaxy"}));}} style={{width:"100%",padding:"5px",background:"rgba(255,107,53,0.07)",border:"1px solid rgba(255,107,53,0.25)",color:"#ff6b35",fontFamily:"monospace",fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",borderRadius:3,cursor:"pointer",transition:"all 0.15s"}}>
             ✕ Clear Image
           </button>
         )}
@@ -217,9 +334,61 @@ export default function CosmicSidebar(){
         <Slider label="Bloom" value={store.bloomIntensity} min={0} max={1} step={0.05} onChange={store.setBloom}/>
         <Slider label="Trail Decay" value={store.trailDecay} min={0.5} max={0.99} step={0.01} onChange={store.setTrailDecay}/>
         <Slider label="Particle Size" value={store.particleSize} min={0.4} max={6} step={0.1} onChange={store.setParticleSize}/>
+        <Slider label="Color Brightness" value={colorBrightness} min={0.4} max={2} step={0.02} unit="×" onChange={setColorBrightness}/>
+        <Slider label="Glow Gain" value={glowGain} min={0} max={2} step={0.02} unit="×" onChange={setGlowGain}/>
+        <button
+          onClick={()=>setCustomPaletteEnabled(v=>!v)}
+          style={{
+            width:"100%",
+            padding:"6px",
+            marginBottom:6,
+            borderRadius:4,
+            border:`1px solid ${customPaletteEnabled?"rgba(255,201,101,0.45)":"rgba(143,245,255,0.18)"}`,
+            background:customPaletteEnabled?"rgba(255,201,101,0.08)":"rgba(18,19,25,0.8)",
+            color:customPaletteEnabled?"var(--tertiary)":"var(--text-dim)",
+            fontFamily:"monospace",
+            fontSize:9,
+            cursor:"pointer",
+          }}
+          aria-pressed={customPaletteEnabled}
+        >
+          {customPaletteEnabled?"Custom Palette: ON":"Custom Palette: OFF"}
+        </button>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4,marginBottom:6}}>
+          {COLOR_PRESETS.map((preset)=>(
+            <button
+              key={preset.id}
+              onClick={()=>{setCustomStart(preset.start);setCustomEnd(preset.end);setCustomPaletteEnabled(true);}}
+              style={{
+                padding:"4px 2px",
+                borderRadius:3,
+                border:"1px solid rgba(255,255,255,0.08)",
+                background:`linear-gradient(135deg, ${preset.start}, ${preset.end})`,
+                color:"rgba(5,8,15,0.85)",
+                fontFamily:"monospace",
+                fontSize:8,
+                fontWeight:700,
+                cursor:"pointer",
+              }}
+              aria-label={`Use ${preset.label} palette`}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:6,marginBottom:6}}>
+          <label style={{display:"flex",alignItems:"center",gap:4,fontSize:9,color:"var(--text-dim)",fontFamily:"monospace",flex:1}}>
+            A
+            <input type="color" value={customStart} onChange={e=>{setCustomStart(e.target.value);setCustomPaletteEnabled(true);}} style={{width:"100%",height:22,padding:0,border:"1px solid rgba(143,245,255,0.2)",background:"transparent",cursor:"pointer"}} aria-label="Custom palette start color"/>
+          </label>
+          <label style={{display:"flex",alignItems:"center",gap:4,fontSize:9,color:"var(--text-dim)",fontFamily:"monospace",flex:1}}>
+            B
+            <input type="color" value={customEnd} onChange={e=>{setCustomEnd(e.target.value);setCustomPaletteEnabled(true);}} style={{width:"100%",height:22,padding:0,border:"1px solid rgba(143,245,255,0.2)",background:"transparent",cursor:"pointer"}} aria-label="Custom palette end color"/>
+          </label>
+        </div>
         <div style={{display:"flex",gap:3,flexWrap:"wrap",paddingTop:4}}>
           {COLORMAPS.map(([id,gradient])=>(
-            <div key={id} onClick={()=>store.setColormap(id)} style={{flex:1,minWidth:22,height:14,borderRadius:2,background:gradient,border:store.colormap===id?"1.5px solid rgba(255,255,255,0.8)":"1.5px solid transparent",cursor:"pointer",transition:"border-color 0.12s"}} role="button" aria-label={`${id} colormap`} aria-pressed={store.colormap===id}/>
+            <div key={id} onClick={()=>{setCustomPaletteEnabled(false);store.setColormap(id);}} style={{flex:1,minWidth:22,height:14,borderRadius:2,background:gradient,border:store.colormap===id&&!customPaletteEnabled?"1.5px solid rgba(143,245,255,0.85)":"1.5px solid transparent",cursor:"pointer",transition:"border-color 0.12s"}} role="button" aria-label={`${id} colormap`} aria-pressed={store.colormap===id&&!customPaletteEnabled}/>
           ))}
         </div>
       </Section>
@@ -230,6 +399,32 @@ export default function CosmicSidebar(){
           {btn("○ Repel",forceMode==="repel",()=>handleForce("repel"),"secondary")}
           {btn("⊙ Orbit",forceMode==="orbit",()=>handleForce("orbit"),"tertiary")}
         </div>
+        <button
+          onClick={()=>setCursorFieldEnabled(v=>!v)}
+          style={{
+            width:"100%",
+            padding:"6px",
+            marginBottom:8,
+            borderRadius:4,
+            border:`1px solid ${cursorFieldEnabled?"rgba(143,245,255,0.45)":"rgba(143,245,255,0.14)"}`,
+            background:cursorFieldEnabled?"rgba(143,245,255,0.08)":"rgba(18,19,25,0.78)",
+            color:cursorFieldEnabled?"var(--primary)":"var(--text-dim)",
+            fontFamily:"monospace",
+            fontSize:8,
+            letterSpacing:"0.08em",
+            textTransform:"uppercase",
+            cursor:"pointer",
+          }}
+          aria-pressed={cursorFieldEnabled}
+        >
+          {cursorFieldEnabled?"Cursor Manipulation: ON":"Cursor Manipulation: OFF"}
+        </button>
+        {cursorFieldEnabled&&(
+          <>
+            <Slider label="Cursor Strength" value={cursorFieldStrength} min={0.2} max={2} step={0.05} unit="×" onChange={setCursorFieldStrength}/>
+            <Slider label="Cursor Radius" value={cursorFieldRadius} min={0.5} max={2} step={0.05} unit="×" onChange={setCursorFieldRadius}/>
+          </>
+        )}
         <Slider label="Radius" value={store.forceRadius} min={20} max={350} step={5} onChange={store.setForceRadius}/>
         <Slider label="Strength" value={store.forceStrength} min={0.1} max={12} step={0.1} onChange={store.setForceStrength}/>
       </Section>
@@ -255,7 +450,7 @@ export default function CosmicSidebar(){
 
       <Section title="Shortcuts" open={false}>
         <div style={{display:"flex",flexDirection:"column",gap:3}}>
-          {[["Space","Explode"],["R","Reset"],["P","Pause"],["S","Sidebar"],["←/→","Time scale"],["Click","Attract"],["Shift+Click","Repel"]].map(([k,v])=>(
+          {[["Drag","Orbit rotate"],["Wheel","Zoom in/out"],["Right Click","Attract"],["Shift+Right Click","Repel"],["Space","Explode"],["R","Reset"],["P","Pause"],["S","Sidebar"]].map(([k,v])=>(
             <div key={k} style={{display:"flex",justifyContent:"space-between"}}>
               <span style={{fontFamily:"monospace",fontSize:9,color:"var(--primary)"}}>{k}</span>
               <span style={{fontFamily:"monospace",fontSize:9,color:"var(--text-dim)"}}>{v}</span>

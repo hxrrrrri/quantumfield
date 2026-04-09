@@ -1,11 +1,13 @@
 "use client";
 import dynamic from "next/dynamic";
 import { Suspense } from "react";
+import { useSimulatorStore } from "@/store/simulatorStore";
 
 const ParticleCanvas = dynamic(() => import("@/components/canvas/ParticleCanvas"), { ssr: false });
 const CosmicSidebar = dynamic(() => import("@/components/ui/CosmicSidebar"),       { ssr: false });
 const TopBar        = dynamic(() => import("@/components/ui/TopBar"),               { ssr: false });
 const InfoOverlay   = dynamic(() => import("@/components/ui/InfoOverlay"),          { ssr: false });
+const ANNVisualizer = dynamic(() => import("@/components/ml/ANNVisualizer"),        { ssr: false });
 
 function LoadingScreen() {
   return (
@@ -27,6 +29,9 @@ function LoadingScreen() {
 }
 
 export default function SimulatorPage() {
+  const annPanelOpen = useSimulatorStore((s) => s.annPanelOpen);
+  const sidebarOpen = useSimulatorStore((s) => s.sidebarOpen);
+
   return (
     <main
       style={{position:"relative",width:"100vw",height:"100vh",overflow:"hidden",background:"#0d0e13"}}
@@ -54,6 +59,41 @@ export default function SimulatorPage() {
         <CosmicSidebar/>
         <InfoOverlay/>
 
+        {annPanelOpen && (
+          <section
+            style={{
+              position: "absolute",
+              left: sidebarOpen ? 186 : 16,
+              right: sidebarOpen ? 262 : 16,
+              bottom: 44,
+              top: 64,
+              zIndex: 24,
+              pointerEvents: "none",
+              display: "flex",
+              alignItems: "flex-end",
+              justifyContent: "center",
+              paddingBottom: 10,
+            }}
+            aria-label="Artificial neural network diagram panel"
+          >
+            <div
+              style={{
+                width: "min(980px, 100%)",
+                maxHeight: "52vh",
+                pointerEvents: "auto",
+                background: "rgba(2,8,14,0.62)",
+                border: "1px solid rgba(0,255,176,0.2)",
+                borderRadius: 8,
+                boxShadow: "0 0 40px rgba(0,255,176,0.16)",
+                backdropFilter: "blur(14px)",
+                overflow: "hidden",
+              }}
+            >
+              <ANNVisualizer />
+            </div>
+          </section>
+        )}
+
         {/* Bottom telemetry bar */}
         <div style={{
           position:"absolute",bottom:0,left:0,right:0,height:36,zIndex:20,
@@ -70,7 +110,7 @@ export default function SimulatorPage() {
             ))}
           </div>
           <div style={{display:"flex",gap:14}}>
-            {["SPACE=EXPLODE","CLICK=ATTRACT","SHIFT=REPEL","R=RESET"].map(s=>(
+            {["DRAG=ROTATE","WHEEL=ZOOM","RIGHT_CLICK=FORCE","SPACE=EXPLODE"].map(s=>(
               <span key={s} style={{fontFamily:"monospace",fontSize:8,color:"rgba(143,245,255,0.18)",letterSpacing:"0.08em"}}>{s}</span>
             ))}
           </div>

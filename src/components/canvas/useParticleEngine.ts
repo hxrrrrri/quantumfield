@@ -12,14 +12,60 @@ interface EngineOptions {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
+interface ShapeCameraState {
+  yaw: number;
+  pitch: number;
+  distance: number;
+  minDistance: number;
+  maxDistance: number;
+  rotateSensitivity: number;
+  zoomStep: number;
+  dragging: boolean;
+  lastX: number;
+  lastY: number;
+}
+
+interface RenderTuningState {
+  brightness: number;
+  glow: number;
+}
+
+interface CursorFieldState {
+  enabled: boolean;
+  strength: number;
+  radius: number;
+}
+
+interface AmbientField {
+  x: Float32Array;
+  y: Float32Array;
+  vx: Float32Array;
+  vy: Float32Array;
+  alpha: Float32Array;
+  size: Float32Array;
+  hue: Float32Array;
+  count: number;
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function hash01(i: number, seed: number): number {
+  const v = Math.sin(i * 12.9898 + seed * 78.233) * 43758.5453;
+  return v - Math.floor(v);
+}
+
 /* ─── Colormaps ─────────────────────────────────────────────────────────── */
 const CMAPS: Record<string, (t: number) => [number, number, number]> = {
   viridis:(t)=>interp([[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]],t),
   inferno:(t)=>interp([[0,0,4],[120,28,109],[229,93,45],[252,255,164]],t),
   plasma: (t)=>interp([[13,8,135],[156,23,158],[237,121,83],[240,249,33]],t),
+  turbo:  (t)=>interp([[48,18,59],[40,114,251],[43,210,110],[247,224,24],[210,48,5]],t),
   cyan:   (t)=>interp([[2,13,26],[0,63,92],[0,180,220],[143,245,255]],t),
   fire:   (t)=>interp([[16,0,0],[139,0,0],[255,69,0],[255,200,0]],t),
   magma:  (t)=>interp([[26,0,48],[85,0,170],[172,137,255],[232,208,255]],t),
+  aurora: (t)=>interp([[9,18,46],[30,84,123],[42,163,125],[137,228,87],[198,255,170]],t),
   rainbow:(t)=>interp([[255,0,80],[255,100,0],[200,220,0],[0,220,80],[0,180,255],[150,0,255]],t),
   neon:   (t)=>interp([[0,255,200],[0,150,255],[200,0,255],[255,0,150],[255,200,0]],t),
 };
@@ -32,6 +78,27 @@ function interp(s:[number,number,number][],t:number):[number,number,number]{
   return[Math.round(a[0]+(b[0]-a[0])*f),Math.round(a[1]+(b[1]-a[1])*f),Math.round(a[2]+(b[2]-a[2])*f)];
 }
 
+function lerpRgb(a:[number,number,number], b:[number,number,number], t:number):[number,number,number]{
+  const tt = clamp(t, 0, 1);
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * tt),
+    Math.round(a[1] + (b[1] - a[1]) * tt),
+    Math.round(a[2] + (b[2] - a[2]) * tt),
+  ];
+}
+
+function limitLuma(r:number, g:number, b:number, maxLuma = 226):[number,number,number]{
+  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  if (luma <= maxLuma) {
+    return [r, g, b];
+  }
+  const scale = maxLuma / Math.max(1, luma);
+  const rr = clamp(Math.round(r * scale), 0, 255);
+  const gg = clamp(Math.round(g * scale), 0, 255);
+  const bb = clamp(Math.round(b * scale), 0, 255);
+  return [rr, gg, bb];
+}
+
 /* ─── Particle arrays (SoA) ─────────────────────────────────────────────── */
 interface Particles {
   px:Float32Array; py:Float32Array;
@@ -39,203 +106,520 @@ interface Particles {
   pm:Float32Array; pc:Float32Array;
   palpha:Float32Array; pphase:Float32Array;
   pcharge:Float32Array;
+  psize:Float32Array;
   // target positions for instant snap + spring blend
   tx:Float32Array; ty:Float32Array;
   tc:Float32Array; // target color
+  // shape-space (3D) positions and targets
+  sx:Float32Array; sy:Float32Array; sz:Float32Array;
+  stx:Float32Array; sty:Float32Array; stz:Float32Array;
+  svx:Float32Array; svy:Float32Array; svz:Float32Array;
   count:number;
 }
 function alloc(n:number):Particles{
+  const psize = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    psize[i] = 0.55 + Math.random() * 1.2;
+  }
   return{
     px:new Float32Array(n),py:new Float32Array(n),
     pvx:new Float32Array(n),pvy:new Float32Array(n),
     pm:new Float32Array(n).fill(1),pc:new Float32Array(n),
     palpha:new Float32Array(n).fill(1),pphase:new Float32Array(n),
     pcharge:new Float32Array(n),
+    psize,
     tx:new Float32Array(n),ty:new Float32Array(n),tc:new Float32Array(n),
+    sx:new Float32Array(n),sy:new Float32Array(n),sz:new Float32Array(n),
+    stx:new Float32Array(n),sty:new Float32Array(n),stz:new Float32Array(n),
+    svx:new Float32Array(n),svy:new Float32Array(n),svz:new Float32Array(n),
     count:n,
   };
 }
 
-/* ─── 3D Shape target generators (pre-compute all at once) ─────────────── */
-function computeShapeTargets(
-  shape:string, n:number, W:number, H:number,
-  tx:Float32Array, ty:Float32Array, tc:Float32Array
+function computeGalaxyTargets2D(
+  n:number,
+  W:number,
+  H:number,
+  tx:Float32Array,
+  ty:Float32Array,
+  tc:Float32Array
 ):void{
-  const cx=W/2, cy=H/2;
-  const rY=0; // static snapshot — rotation handled in render loop via simTime
+  const cx = W / 2;
+  const cy = H / 2;
+  const maxR = Math.min(W, H) * 0.36;
+  for (let i = 0; i < n; i++) {
+    const arm = i % 4;
+    const rnd = hash01(i, 3.1);
+    const r = 12 + Math.pow(rnd, 0.58) * maxR;
+    const swirl = arm * (Math.PI * 2 / 4) + r * 0.028;
+    const jitterR = (hash01(i, 8.9) - 0.5) * 20;
+    const jitterY = (hash01(i, 15.2) - 0.5) * 14;
+    tx[i] = cx + Math.cos(swirl) * (r + jitterR);
+    ty[i] = cy + Math.sin(swirl) * (r + jitterR) * 0.58 + jitterY;
+    tc[i] = clamp(r / maxR, 0, 1);
+  }
+}
 
+/* ─── 3D Shape target generators ───────────────────────────────────────── */
+function computeShapeTargets3D(
+  shape:string,
+  n:number,
+  tx:Float32Array,
+  ty:Float32Array,
+  tz:Float32Array,
+  tc:Float32Array
+):void{
   switch(shape){
-    case "sphere":{
-      const R=Math.min(W,H)*0.27;
+    case "sphere": {
       for(let i=0;i<n;i++){
-        const phi=Math.acos(1-2*(i+0.5)/n);
-        const theta=Math.PI*(1+Math.sqrt(5))*i;
-        const x3=R*Math.sin(phi)*Math.cos(theta);
-        const y3=R*Math.sin(phi)*Math.sin(theta);
-        const z3=R*Math.cos(phi);
-        tx[i]=cx+x3; ty[i]=cy+y3*0.9+z3*0.15;
-        tc[i]=Math.max(0,Math.min(1,(z3+R)/(2*R)));
-      }break;
+        const phi = Math.acos(1 - 2 * ((i + 0.5) / n));
+        const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+        const x = Math.sin(phi) * Math.cos(theta);
+        const y = Math.sin(phi) * Math.sin(theta);
+        const z = Math.cos(phi);
+        tx[i] = x;
+        ty[i] = y;
+        tz[i] = z;
+        tc[i] = clamp((z + 1) * 0.5, 0, 1);
+      }
+      break;
     }
-    case "cylinder":{
-      const R=Math.min(W,H)*0.18, H2=Math.min(W,H)*0.38;
-      for(let i=0;i<n;i++){
-        const t=i/n;
-        const theta=t*Math.PI*2*Math.ceil(n/60);
-        const u=(i%60)/60;
-        const yy=(t-0.5)*H2;
-        tx[i]=cx+R*Math.cos(theta);
-        ty[i]=cy+yy+R*Math.sin(theta)*0.2;
-        tc[i]=t;
-      }break;
+    case "cylinder": {
+      const radius = 0.58;
+      const halfHeight = 1.08;
+      const golden = Math.PI * (3 - Math.sqrt(5));
+      const sideCount = Math.max(1, Math.floor(n * 0.42));
+      const capCount = Math.max(2, Math.floor(n * 0.24));
+      let idx = 0;
+
+      // Side wall for a crisp cylindrical silhouette.
+      for (; idx < sideCount && idx < n; idx++) {
+        const t = (idx + 0.5) / sideCount;
+        const theta = idx * golden;
+        const y = (t * 2 - 1) * halfHeight;
+        tx[idx] = Math.cos(theta) * radius;
+        ty[idx] = y;
+        tz[idx] = Math.sin(theta) * radius;
+        tc[idx] = clamp((y + halfHeight) / (2 * halfHeight), 0, 1);
+      }
+
+      // Top and bottom caps so the cylinder is not hollow.
+      for (let j = 0; j < capCount && idx < n; j++, idx++) {
+        const rr = Math.sqrt(hash01(j, 13.3)) * radius;
+        const theta = j * golden;
+        const top = (j & 1) === 0;
+        tx[idx] = Math.cos(theta) * rr;
+        ty[idx] = top ? halfHeight : -halfHeight;
+        tz[idx] = Math.sin(theta) * rr;
+        tc[idx] = top ? 0.92 : 0.08;
+      }
+
+      // Fill interior volume for dense, seamless projection.
+      for (let j = 0; idx < n; j++, idx++) {
+        const theta = hash01(j, 23.2) * Math.PI * 2;
+        const rr = Math.sqrt(hash01(j, 31.1)) * radius * 0.98;
+        const y = (hash01(j, 42.5) * 2 - 1) * halfHeight;
+        tx[idx] = Math.cos(theta) * rr;
+        ty[idx] = y;
+        tz[idx] = Math.sin(theta) * rr;
+        tc[idx] = clamp((y + halfHeight) / (2 * halfHeight), 0, 1);
+      }
+      break;
     }
-    case "torus":{
-      const R1=Math.min(W,H)*0.2,R2=Math.min(W,H)*0.09;
-      for(let i=0;i<n;i++){
-        const u=(i/n)*Math.PI*2, v=((i*7.0/n)%1)*Math.PI*2;
-        const x3=(R1+R2*Math.cos(v))*Math.cos(u);
-        const y3=R2*Math.sin(v);
-        const z3=(R1+R2*Math.cos(v))*Math.sin(u);
-        tx[i]=cx+x3; ty[i]=cy+y3*0.9+z3*0.18;
-        tc[i]=Math.max(0,Math.min(1,(z3+R1+R2)/(2*(R1+R2))));
-      }break;
+    case "torus": {
+      const R1 = 0.95;
+      const R2 = 0.34;
+      for (let i = 0; i < n; i++) {
+        const u = (i / n) * Math.PI * 2;
+        const v = ((i * 7.21 / n) % 1) * Math.PI * 2;
+        const x = (R1 + R2 * Math.cos(v)) * Math.cos(u);
+        const y = R2 * Math.sin(v);
+        const z = (R1 + R2 * Math.cos(v)) * Math.sin(u);
+        tx[i] = x * 0.8;
+        ty[i] = y * 0.8;
+        tz[i] = z * 0.8;
+        tc[i] = clamp((z + (R1 + R2)) / (2 * (R1 + R2)), 0, 1);
+      }
+      break;
     }
-    case "cube":{
-      const S=Math.min(W,H)*0.22;
-      for(let i=0;i<n;i++){
-        const face=Math.floor(i/(n/6));
-        const tt2=(i%(Math.ceil(n/6)))/Math.ceil(n/6);
-        const u2=((tt2*37)%1-0.5)*2*S, v2=((tt2*53)%1-0.5)*2*S;
-        const facePos:([number,number,number])[]=[
-          [u2,v2,S],[u2,v2,-S],[u2,S,v2],[u2,-S,v2],[S,u2,v2],[-S,u2,v2]
-        ];
-        const[x3,y3,z3]=facePos[face%6]!;
-        tx[i]=cx+x3; ty[i]=cy+y3*0.9+z3*0.18;
-        tc[i]=Math.max(0,Math.min(1,(z3+S*2)/(S*4)));
-      }break;
-    }
-    case "trefoil":{
-      for(let i=0;i<n;i++){
-        const t2=(i/n)*Math.PI*4;
-        const R=Math.min(W,H)*0.22;
-        const x3=R*(Math.sin(t2)+2*Math.sin(2*t2));
-        const y3=R*(Math.cos(t2)-2*Math.cos(2*t2));
-        const z3=R*(-Math.sin(3*t2));
-        tx[i]=cx+x3+(Math.random()-0.5)*3;
-        ty[i]=cy+y3*0.9+z3*0.18+(Math.random()-0.5)*3;
-        tc[i]=Math.max(0,Math.min(1,(z3+R*3)/(R*6)));
-      }break;
-    }
-    case "mobius":{
-      const R=Math.min(W,H)*0.22;
-      for(let i=0;i<n;i++){
-        const u=(i/n)*Math.PI*2, v=((i/n)*8%1-0.5)*0.4;
-        const x3=(R+v*Math.cos(u/2))*Math.cos(u);
-        const y3=(R+v*Math.cos(u/2))*Math.sin(u);
-        const z3=v*Math.sin(u/2)*80;
-        tx[i]=cx+x3; ty[i]=cy+y3*0.7+z3*0.25;
-        tc[i]=Math.max(0,Math.min(1,(y3+R)/(2*R)));
-      }break;
-    }
-    case "klein":{
-      const R=Math.min(W,H)*0.13;
-      for(let i=0;i<n;i++){
-        const u=(i/n)*Math.PI*2, v2=((i*4.0/n)%1)*Math.PI*2;
-        let x3:number,y3:number,z3:number;
-        if(u<Math.PI){
-          x3=3*R*Math.cos(u)*(1+Math.sin(u))+2*R*(1-Math.cos(u)/2)*Math.cos(u)*Math.cos(v2);
-          y3=8*R*Math.sin(u)+(2*R*(1-Math.cos(u)/2))*Math.sin(u)*Math.cos(v2);
-        }else{
-          x3=3*R*Math.cos(u)*(1+Math.sin(u))+2*R*(1-Math.cos(u)/2)*Math.cos(v2+Math.PI);
-          y3=8*R*Math.sin(u);
+    case "cube": {
+      const S = 0.96;
+      const grid = Math.max(2, Math.ceil(Math.cbrt(n)));
+      const step = (S * 2) / grid;
+      const shellRatio = 0.36;
+      for (let i = 0; i < n; i++) {
+        const gx = i % grid;
+        const gy = Math.floor(i / grid) % grid;
+        const gz = Math.floor(i / (grid * grid));
+
+        let x = -S + (gx + 0.5) * step + (hash01(i, 6.1) - 0.5) * step * 0.14;
+        let y = -S + (gy + 0.5) * step + (hash01(i, 9.4) - 0.5) * step * 0.14;
+        let z = -S + (gz + 0.5) * step + (hash01(i, 12.7) - 0.5) * step * 0.14;
+
+        // Pull a portion of points to shell planes for sharp cube faces.
+        if (hash01(i, 18.2) < shellRatio) {
+          const axis = Math.floor(hash01(i, 21.8) * 3);
+          const sign = hash01(i, 25.3) > 0.5 ? 1 : -1;
+          if (axis === 0) x = sign * S;
+          else if (axis === 1) y = sign * S;
+          else z = sign * S;
         }
-        z3=2*R*(1-Math.cos(u)/2)*Math.sin(v2);
-        x3/=3; y3/=3;
-        tx[i]=cx+x3; ty[i]=cy+y3*0.7+z3*0.2;
-        tc[i]=Math.max(0,Math.min(1,(z3+200)/400));
-      }break;
+
+        tx[i] = clamp(x, -S, S);
+        ty[i] = clamp(y, -S, S);
+        tz[i] = clamp(z, -S, S);
+
+        const edge = Math.max(Math.abs(tx[i] ?? 0), Math.abs(ty[i] ?? 0), Math.abs(tz[i] ?? 0)) / S;
+        const vertical = ((ty[i] ?? 0) / S + 1) * 0.5;
+        tc[i] = clamp(0.14 + edge * 0.56 + vertical * 0.3, 0, 1);
+      }
+      break;
     }
-    case "octahed":{
-      const S=Math.min(W,H)*0.22;
+    case "trefoil": {
+      for (let i = 0; i < n; i++) {
+        const t = (i / n) * Math.PI * 2;
+        const x0 = Math.sin(t) + 2 * Math.sin(2 * t);
+        const y0 = Math.cos(t) - 2 * Math.cos(2 * t);
+        const z0 = -Math.sin(3 * t);
+        tx[i] = x0 * 0.32;
+        ty[i] = y0 * 0.32;
+        tz[i] = z0 * 0.5;
+        tc[i] = clamp((z0 + 1) * 0.5, 0, 1);
+      }
+      break;
+    }
+    case "mobius": {
+      for (let i = 0; i < n; i++) {
+        const u = (i / n) * Math.PI * 2;
+        const v = ((i * 11.0 / n) % 1 - 0.5) * 0.55;
+        const x = (1 + v * Math.cos(u / 2)) * Math.cos(u);
+        const y = (1 + v * Math.cos(u / 2)) * Math.sin(u);
+        const z = v * Math.sin(u / 2) * 1.8;
+        tx[i] = x * 0.78;
+        ty[i] = y * 0.78;
+        tz[i] = z * 0.78;
+        tc[i] = clamp((y + 1) * 0.5, 0, 1);
+      }
+      break;
+    }
+    case "klein": {
+      for (let i = 0; i < n; i++) {
+        const u = (i / n) * Math.PI * 2;
+        const v = ((i * 5.31 / n) % 1) * Math.PI * 2;
+        let x:number;
+        let y:number;
+        if (u < Math.PI) {
+          x = 3 * Math.cos(u) * (1 + Math.sin(u)) + 2 * (1 - Math.cos(u) / 2) * Math.cos(u) * Math.cos(v);
+          y = 8 * Math.sin(u) + 2 * (1 - Math.cos(u) / 2) * Math.sin(u) * Math.cos(v);
+        } else {
+          x = 3 * Math.cos(u) * (1 + Math.sin(u)) + 2 * (1 - Math.cos(u) / 2) * Math.cos(v + Math.PI);
+          y = 8 * Math.sin(u);
+        }
+        const z = 2 * (1 - Math.cos(u) / 2) * Math.sin(v);
+        tx[i] = x * 0.16;
+        ty[i] = y * 0.12;
+        tz[i] = z * 0.55;
+        tc[i] = clamp((z + 2) / 4, 0, 1);
+      }
+      break;
+    }
+    case "octahed": {
       const verts:([number,number,number])[]= [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
       const faces:([number,number,number])[]= [[0,2,4],[0,4,3],[0,3,5],[0,5,2],[1,4,2],[1,3,4],[1,5,3],[1,2,5]];
+      const perFace = Math.max(1, Math.floor(n / faces.length));
       for(let i=0;i<n;i++){
-        const face=Math.floor(i/(n/8));
-        const tt2=(i%(Math.ceil(n/8)))/Math.ceil(n/8);
-        const u2=Math.sqrt(tt2), v2=tt2*Math.PI*4;
-        const[ai,bi,ci]=faces[face%8]!;
-        const a2=verts[ai]!,b2=verts[bi]!,c2=verts[ci]!;
-        const ba=u2*Math.cos(v2),bb=u2*Math.sin(v2),bc=1-u2;
-        const x3=(a2[0]*ba+b2[0]*bb+c2[0]*bc)*S;
-        const y3=(a2[1]*ba+b2[1]*bb+c2[1]*bc)*S;
-        const z3=(a2[2]*ba+b2[2]*bb+c2[2]*bc)*S;
-        tx[i]=cx+x3; ty[i]=cy+y3*0.9+z3*0.18;
-        tc[i]=Math.max(0,Math.min(1,(z3+S*2)/(S*4)));
-      }break;
+        const face=Math.floor(i/perFace) % faces.length;
+        const [ai,bi,ci]=faces[face]!;
+        const a=verts[ai]!,b=verts[bi]!,c=verts[ci]!;
+        const r1 = Math.sqrt(hash01(i, 4.1));
+        const r2 = hash01(i, 5.2);
+        const w0 = 1 - r1;
+        const w1 = r1 * (1 - r2);
+        const w2 = r1 * r2;
+        const x = (a[0] * w0 + b[0] * w1 + c[0] * w2) * 0.95;
+        const y = (a[1] * w0 + b[1] * w1 + c[1] * w2) * 0.95;
+        const z = (a[2] * w0 + b[2] * w1 + c[2] * w2) * 0.95;
+        tx[i]=x;
+        ty[i]=y;
+        tz[i]=z;
+        tc[i]=clamp((z + 1) * 0.5, 0, 1);
+      }
+      break;
     }
-    case "heart":{
-      const R=Math.min(W,H)*0.1;
-      for(let i=0;i<n;i++){
-        const t2=(i/n)*Math.PI*2;
-        const x3=R*16*Math.pow(Math.sin(t2),3);
-        const y3=-R*(13*Math.cos(t2)-5*Math.cos(2*t2)-2*Math.cos(3*t2)-Math.cos(4*t2));
-        const z3=R*8*Math.cos(t2)*Math.sin(t2);
-        tx[i]=cx+x3+(Math.random()-0.5)*4;
-        ty[i]=cy+y3*0.9+z3*0.18+(Math.random()-0.5)*4;
-        tc[i]=Math.max(0,Math.min(1,(z3+200)/400));
-      }break;
+    case "heart": {
+      for (let i = 0; i < n; i++) {
+        const t = (i / n) * Math.PI * 2;
+        const x = 0.06 * 16 * Math.pow(Math.sin(t), 3);
+        const y = -0.06 * (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+        const z = 0.28 * Math.cos(t) * Math.sin(t);
+        tx[i] = x;
+        ty[i] = y;
+        tz[i] = z;
+        tc[i] = clamp((z + 0.3) / 0.6, 0, 1);
+      }
+      break;
     }
-    case "wave":{
-      const cols=Math.ceil(Math.sqrt(n));
-      for(let i=0;i<n;i++){
-        const row=Math.floor(i/cols), col2=i%cols;
-        const u2=(col2/cols-0.5)*Math.min(W,H)*0.68;
-        const v2=(row/cols-0.5)*Math.min(W,H)*0.68;
-        const r2=Math.sqrt(u2*u2+v2*v2);
-        const z3=Math.sin(r2*0.04)*40*(1-r2/(Math.min(W,H)*0.5));
-        tx[i]=cx+u2; ty[i]=cy+v2*0.8+z3*0.3;
-        tc[i]=Math.max(0,Math.min(1,(z3+40)/80));
-      }break;
+    case "wave": {
+      const cols = Math.ceil(Math.sqrt(n));
+      for (let i = 0; i < n; i++) {
+        const row = Math.floor(i / cols);
+        const col = i % cols;
+        const u = (col / cols - 0.5) * 2.2;
+        const v = (row / cols - 0.5) * 2.2;
+        const r = Math.sqrt(u * u + v * v);
+        const z = Math.sin(r * 4.6) * (1 - clamp(r / 1.5, 0, 1)) * 0.38;
+        tx[i] = u;
+        ty[i] = v;
+        tz[i] = z;
+        tc[i] = clamp((z + 0.4) / 0.8, 0, 1);
+      }
+      break;
     }
-    case "dna":{
-      for(let i=0;i<n;i++){
-        const t2=i/n;
-        const z3=t2*H*1.05-H*0.025;
-        const angle=t2*Math.PI*14;
-        const strand=i%3;
-        let x3=0, c=0;
-        if(strand<2){ x3=Math.cos(angle+(strand===0?1:-1)*Math.PI/2)*40; c=strand===0?0.2:0.75; }
-        else{ x3=Math.cos(angle+Math.PI/2)*40*(Math.random()*0.5+0.25); c=0.5; }
-        tx[i]=cx+x3+(Math.random()-0.5)*3; ty[i]=z3+(Math.random()-0.5)*3; tc[i]=c;
-      }break;
+    case "dna": {
+      for (let i = 0; i < n; i++) {
+        const t = i / n;
+        const y = (t - 0.5) * 2.2;
+        const angle = t * Math.PI * 14;
+        const strand = i % 3;
+        let x = 0;
+        let z = 0;
+        if (strand < 2) {
+          const offset = strand === 0 ? Math.PI / 2 : -Math.PI / 2;
+          x = Math.cos(angle + offset) * 0.62;
+          z = Math.sin(angle + offset) * 0.62;
+          tc[i] = strand === 0 ? 0.2 : 0.78;
+        } else {
+          x = Math.cos(angle + Math.PI / 2) * (0.25 + hash01(i, 3.7) * 0.35);
+          z = Math.sin(angle + Math.PI / 2) * (0.25 + hash01(i, 9.3) * 0.35);
+          tc[i] = 0.5;
+        }
+        tx[i] = x;
+        ty[i] = y;
+        tz[i] = z;
+      }
+      break;
     }
-    case "spiral":{
-      for(let i=0;i<n;i++){
-        const t2=(i/n)*6*Math.PI;
-        const R=Math.min(W,H)*0.28*(1-i/n*0.7);
-        tx[i]=cx+R*Math.cos(t2)+(Math.random()-0.5)*4;
-        ty[i]=cy+R*Math.sin(t2)*0.6+(i/n-0.5)*H*0.5+(Math.random()-0.5)*4;
-        tc[i]=i/n;
-      }break;
+    case "spiral": {
+      for (let i = 0; i < n; i++) {
+        const t = (i / n) * 6 * Math.PI;
+        const radius = 1.1 * (1 - (i / n) * 0.72);
+        const x = radius * Math.cos(t);
+        const z = radius * Math.sin(t);
+        const y = (i / n - 0.5) * 1.8;
+        tx[i] = x;
+        ty[i] = y;
+        tz[i] = z;
+        tc[i] = i / n;
+      }
+      break;
     }
-    default:{ // galaxy fallback
-      for(let i=0;i<n;i++){
-        const arm=Math.floor(Math.random()*3);
-        const r=10+Math.pow(Math.random(),0.6)*Math.min(W,H)*0.35;
-        const theta=arm*(Math.PI*2/3)+r*0.025+Math.random()*0.4;
-        tx[i]=cx+Math.cos(theta)*r+(Math.random()-0.5)*18;
-        ty[i]=cy+Math.sin(theta)*r*0.55+(Math.random()-0.5)*12;
-        tc[i]=Math.random();
+    default: {
+      for (let i = 0; i < n; i++) {
+        const arm = i % 4;
+        const t = i / n;
+        const radius = Math.pow(hash01(i, 11.2), 0.55) * 1.45;
+        const theta = arm * (Math.PI / 2) + radius * 3.0 + t * Math.PI * 2;
+        const x = Math.cos(theta) * radius;
+        const y = (hash01(i, 7.9) - 0.5) * 0.32;
+        const z = Math.sin(theta) * radius * 0.38;
+        tx[i] = x;
+        ty[i] = y;
+        tz[i] = z;
+        tc[i] = clamp(radius / 1.45, 0, 1);
       }
     }
   }
+}
+
+interface ImagePoint {
+  x: number;
+  y: number;
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+}
+
+function extractOpaqueImagePoints(imageData: ImageData, srcW: number, srcH: number): { all: ImagePoint[]; edges: ImagePoint[] } {
+  const all: ImagePoint[] = [];
+  const edges: ImagePoint[] = [];
+  const data = imageData.data;
+  const alphaThreshold = 20;
+
+  const alphaAt = (x: number, y: number): number => {
+    if (x < 0 || x >= srcW || y < 0 || y >= srcH) return 0;
+    return data[(y * srcW + x) * 4 + 3] ?? 0;
+  };
+
+  for (let y = 0; y < srcH; y++) {
+    for (let x = 0; x < srcW; x++) {
+      const i = (y * srcW + x) * 4;
+      const a = data[i + 3] ?? 0;
+      if (a <= alphaThreshold) continue;
+
+      const point: ImagePoint = {
+        x,
+        y,
+        r: data[i] ?? 0,
+        g: data[i + 1] ?? 0,
+        b: data[i + 2] ?? 0,
+        a,
+      };
+      all.push(point);
+
+      const isEdge =
+        alphaAt(x - 1, y) <= alphaThreshold ||
+        alphaAt(x + 1, y) <= alphaThreshold ||
+        alphaAt(x, y - 1) <= alphaThreshold ||
+        alphaAt(x, y + 1) <= alphaThreshold;
+
+      if (isEdge) {
+        edges.push(point);
+      }
+    }
+  }
+
+  return { all, edges };
+}
+
+function stratifiedSelectImagePoints(
+  points: ImagePoint[],
+  desired: number,
+  srcW: number,
+  srcH: number,
+  seed: number
+): ImagePoint[] {
+  if (desired <= 0 || points.length === 0) return [];
+  if (points.length <= desired) return points.slice();
+
+  const cellSize = Math.max(1, Math.sqrt((srcW * srcH) / desired));
+  const gridW = Math.max(1, Math.ceil(srcW / cellSize));
+  const gridH = Math.max(1, Math.ceil(srcH / cellSize));
+  const cellCount = gridW * gridH;
+  const bestIdx = new Int32Array(cellCount).fill(-1);
+  const bestScore = new Float32Array(cellCount).fill(Number.POSITIVE_INFINITY);
+
+  for (let i = 0; i < points.length; i++) {
+    const pt = points[i]!;
+    const gx = Math.min(gridW - 1, Math.max(0, Math.floor(pt.x / cellSize)));
+    const gy = Math.min(gridH - 1, Math.max(0, Math.floor(pt.y / cellSize)));
+    const cell = gy * gridW + gx;
+    const cx = (gx + 0.5) * cellSize;
+    const cy = (gy + 0.5) * cellSize;
+    const dx = pt.x - cx;
+    const dy = pt.y - cy;
+    const score = dx * dx + dy * dy + hash01(i, seed) * cellSize * 0.11;
+    if (score < (bestScore[cell] ?? Number.POSITIVE_INFINITY)) {
+      bestScore[cell] = score;
+      bestIdx[cell] = i;
+    }
+  }
+
+  const selected: ImagePoint[] = [];
+  for (let cell = 0; cell < cellCount; cell++) {
+    const idx = bestIdx[cell] ?? -1;
+    if (idx >= 0) {
+      selected.push(points[idx]!);
+    }
+  }
+
+  if (selected.length > desired) {
+    const reduced: ImagePoint[] = [];
+    const step = selected.length / desired;
+    let cursor = hash01(desired, seed * 1.13) * step;
+    for (let i = 0; i < desired; i++) {
+      reduced.push(selected[Math.floor(cursor) % selected.length]!);
+      cursor += step;
+    }
+    return reduced;
+  }
+
+  if (selected.length < desired) {
+    const fill = selected.slice();
+    const needed = desired - selected.length;
+    if (needed > 0) {
+      const step = points.length / needed;
+      let cursor = hash01(points.length, seed * 2.07) * points.length;
+      for (let i = 0; i < needed; i++) {
+        fill.push(points[Math.floor(cursor) % points.length]!);
+        cursor += step;
+      }
+    }
+    return fill;
+  }
+
+  return selected;
+}
+
+function buildAdaptiveImagePointSet(imageData: ImageData, srcW: number, srcH: number, targetCount: number): ImagePoint[] {
+  if (targetCount <= 0) return [];
+  const { all, edges } = extractOpaqueImagePoints(imageData, srcW, srcH);
+  if (all.length === 0) return [];
+
+  if (all.length <= targetCount) {
+    const out = all.slice();
+    while (out.length < targetCount) {
+      const pick = Math.floor((out.length * 1.61803398875) % all.length);
+      out.push(all[pick]!);
+    }
+    return out.slice(0, targetCount);
+  }
+
+  const edgeQuota = Math.min(edges.length, Math.floor(targetCount * 0.3));
+  const outline = stratifiedSelectImagePoints(edges, edgeQuota, srcW, srcH, 17.9);
+  const fillQuota = Math.max(0, targetCount - outline.length);
+  const fill = stratifiedSelectImagePoints(all, fillQuota, srcW, srcH, 41.3);
+
+  const merged = outline.concat(fill);
+  if (merged.length >= targetCount) {
+    return merged.slice(0, targetCount);
+  }
+
+  const remaining = targetCount - merged.length;
+  const extra = stratifiedSelectImagePoints(all, remaining, srcW, srcH, 77.1);
+  return merged.concat(extra).slice(0, targetCount);
+}
+
+function seedShapeSpaceFromScreen(p: Particles, W: number, H: number): void {
+  const minDim = Math.max(1, Math.min(W, H));
+  for (let i = 0; i < p.count; i++) {
+    p.sx[i] = ((p.px[i] ?? W / 2) - W / 2) / minDim * 2.2;
+    p.sy[i] = ((p.py[i] ?? H / 2) - H / 2) / minDim * 2.2;
+    p.sz[i] = (hash01(i, 2.7) - 0.5) * 0.55;
+    p.svx[i] = 0;
+    p.svy[i] = 0;
+    p.svz[i] = 0;
+  }
+}
+
+function createAmbientField(W: number, H: number): AmbientField {
+  const count = clamp(Math.floor((W * H) / 6400), 280, 1200);
+  const x = new Float32Array(count);
+  const y = new Float32Array(count);
+  const vx = new Float32Array(count);
+  const vy = new Float32Array(count);
+  const alpha = new Float32Array(count);
+  const size = new Float32Array(count);
+  const hue = new Float32Array(count);
+
+  for (let i = 0; i < count; i++) {
+    x[i] = Math.random() * W;
+    y[i] = Math.random() * H;
+    vx[i] = (Math.random() - 0.5) * 0.45;
+    vy[i] = (Math.random() - 0.5) * 0.45;
+    alpha[i] = 0.06 + Math.random() * 0.14;
+    size[i] = 0.45 + Math.random() * 1.75;
+    hue[i] = Math.random();
+  }
+
+  return { x, y, vx, vy, alpha, size, hue, count };
 }
 
 /* ─── Preset initializers ─────────────────────────────────────────────── */
 type InitFn=(p:Particles,W:number,H:number)=>void;
 const PRESET_INITS:Record<string,InitFn>={
   galaxy(p,W,H){
-    computeShapeTargets("galaxy",p.count,W,H,p.tx,p.ty,p.tc);
+    computeGalaxyTargets2D(p.count,W,H,p.tx,p.ty,p.tc);
     for(let i=0;i<p.count;i++){
       p.px[i]=p.tx[i]!; p.py[i]=p.ty[i]!;
       p.pvx[i]=(Math.random()-0.5)*1; p.pvy[i]=(Math.random()-0.5)*1;
@@ -307,8 +691,10 @@ const PRESET_INITS:Record<string,InitFn>={
       const vis=Math.random()>0.2;
       if(vis){const r=30+Math.random()*Math.min(W,H)*0.4,a=Math.random()*Math.PI*2;p.px[i]=W/2+Math.cos(a)*r*(0.5+Math.random()*0.5);p.py[i]=H/2+Math.sin(a)*r*(0.5+Math.random()*0.5);}
       else{p.px[i]=(Math.random()-0.5)*W*1.2+W/2;p.py[i]=(Math.random()-0.5)*H*1.2+H/2;}
-      const r2=Math.sqrt((p.px[i]-W/2)**2+(p.py[i]-H/2)**2)+1;
-      const sp=Math.sqrt(1.5/r2)*r2*0.04,a2=Math.atan2(p.py[i]-H/2,p.px[i]-W/2);
+      const px = p.px[i] ?? W / 2;
+      const py = p.py[i] ?? H / 2;
+      const r2=Math.sqrt((px-W/2)**2+(py-H/2)**2)+1;
+      const sp=Math.sqrt(1.5/r2)*r2*0.04,a2=Math.atan2(py-H/2,px-W/2);
       p.pvx[i]=-Math.sin(a2)*sp; p.pvy[i]=Math.cos(a2)*sp;
       p.pm[i]=0.3+Math.random(); p.pc[i]=vis?0.4+Math.random()*0.4:0.05; p.palpha[i]=vis?0.5+Math.random()*0.5:0.08;
     }
@@ -366,17 +752,39 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   const {renderMode}=useWebGPU();
   const pRef=useRef<Particles|null>(null);
   const offRef=useRef<{buf:HTMLCanvasElement;ctx:CanvasRenderingContext2D}|null>(null);
+  const ambientRef = useRef<AmbientField | null>(null);
   const textTargetsRef=useRef<Float32Array|null>(null);
-  const imgTargetsRef=useRef<{tx:Float32Array;ty:Float32Array;tc:Float32Array;tr:Float32Array;tg:Float32Array;tb:Float32Array}|null>(null);
+  const imgTargetsRef=useRef<{tx:Float32Array;ty:Float32Array}|null>(null);
   const shapeModeRef=useRef(false);
   const imgModeRef=useRef(false);
   const currentShapeRef=useRef("galaxy");
+  const shapeCameraRef = useRef<ShapeCameraState>({
+    yaw: 0,
+    pitch: -0.18,
+    distance: 2.7,
+    minDistance: 1.55,
+    maxDistance: 4.9,
+    rotateSensitivity: 0.006,
+    zoomStep: 0.2,
+    dragging: false,
+    lastX: 0,
+    lastY: 0,
+  });
+  const customPaletteRef = useRef<{ enabled: boolean; start: [number, number, number]; end: [number, number, number] }>({
+    enabled: false,
+    start: [0, 212, 255],
+    end: [255, 84, 138],
+  });
+  const shapeAutoYawRef = useRef(0);
+  const lastTextRef = useRef<string>("QUANTUM");
+  const lastImageDataRef = useRef<{ data: ImageData; w: number; h: number; exact: boolean } | null>(null);
+  const renderTuningRef = useRef<RenderTuningState>({ brightness: 1, glow: 1 });
+  const cursorFieldRef = useRef<CursorFieldState>({ enabled: false, strength: 0.85, radius: 1 });
   const forceModeRef=useRef<"attract"|"repel"|"orbit">("attract");
-  const morphSpeedRef=useRef(0.08); // faster default
+  const morphSpeedRef=useRef(0.2);
   const simTimeRef=useRef(0);
-  const rotYRef=useRef(0); // running rotation angle
   const fpsRef=useRef({frames:0,acc:0,fps:0});
-  const mouseRef=useRef({x:0,y:0,down:false,shift:false});
+  const mouseRef=useRef({x:0,y:0,down:false,rightDown:false,shift:false,isRotating:false,inside:false});
   // image colormap override (per-particle RGB when using image mode)
   const imgColorsRef=useRef<{r:Uint8Array;g:Uint8Array;b:Uint8Array}|null>(null);
 
@@ -384,30 +792,52 @@ export function useParticleEngine({canvasRef}:EngineOptions){
 
   function getWH(){const c=canvasRef.current;return{W:c?.offsetWidth??800,H:c?.offsetHeight??600};}
 
-  /* ── Instant shape snap: teleport particles to target positions ─────── */
+  const refreshCursor = useCallback(() => {
+    const c = canvasRef.current;
+    if(!c) return;
+    if(shapeCameraRef.current.dragging) c.style.cursor = "grabbing";
+    else if(shapeModeRef.current) c.style.cursor = "grab";
+    else c.style.cursor = "crosshair";
+  }, [canvasRef]);
+
   function snapToShape(shape:string){
     const{W,H}=getWH();
     let p=pRef.current;
     if(!p){p=alloc(store.particleCount);pRef.current=p;}
     const n=p.count;
 
-    // Compute new targets
-    computeShapeTargets(shape,n,W,H,p.tx,p.ty,p.tc);
-
-    // INSTANT: teleport directly, zero velocity residual
-    for(let i=0;i<n;i++){
-      p.px[i]=p.tx[i]!+(Math.random()-0.5)*6;
-      p.py[i]=p.ty[i]!+(Math.random()-0.5)*6;
-      p.pvx[i]=(Math.random()-0.5)*0.5;
-      p.pvy[i]=(Math.random()-0.5)*0.5;
-      p.pc[i]=p.tc[i]!;
-      p.palpha[i]=0.6+Math.random()*0.4;
+    if (!shapeModeRef.current) {
+      seedShapeSpaceFromScreen(p, W, H);
     }
+
+    computeShapeTargets3D(shape,n,p.stx,p.sty,p.stz,p.tc);
+    for(let i=0;i<n;i++){
+      // Keep current positions as start state and let frame loop do smooth morphing.
+      p.sx[i] = p.sx[i] ?? 0;
+      p.sy[i] = p.sy[i] ?? 0;
+      p.sz[i] = p.sz[i] ?? 0;
+      p.svx[i] = 0;
+      p.svy[i] = 0;
+      p.svz[i] = 0;
+      p.pvx[i] = 0;
+      p.pvy[i] = 0;
+      p.pc[i]=p.tc[i]!;
+      p.palpha[i]=0.45 + hash01(i, 6.2) * 0.5;
+      p.pm[i] = 0.6 + (p.psize[i] ?? 1) * 0.9;
+    }
+
     textTargetsRef.current=null;
+    imgTargetsRef.current=null;
     imgModeRef.current=false;
     imgColorsRef.current=null;
+    if (!shapeModeRef.current) {
+      shapeAutoYawRef.current = 0;
+    }
     shapeModeRef.current=true;
     currentShapeRef.current=shape;
+    store.setActivePreset(null);
+    window.dispatchEvent(new CustomEvent("qf:shapeChanged", { detail: shape }));
+    refreshCursor();
   }
 
   function initPreset(name:string){
@@ -419,8 +849,14 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     pRef.current=p;
     textTargetsRef.current=null;
     imgModeRef.current=false;
+    imgTargetsRef.current=null;
     imgColorsRef.current=null;
+    lastImageDataRef.current = null;
     shapeModeRef.current=false;
+    shapeAutoYawRef.current=0;
+    currentShapeRef.current="galaxy";
+    window.dispatchEvent(new CustomEvent("qf:shapeChanged", { detail: "galaxy" }));
+    refreshCursor();
   }
 
   /* ── Text to particles ─────────────────────────────────────────────── */
@@ -456,55 +892,59 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       p.pm[i]=0.5+Math.random()*0.5;p.pc[i]=i/n;p.palpha[i]=0.9;
     }
     pRef.current=p;
+    lastTextRef.current = text;
     textTargetsRef.current=tgt;
     shapeModeRef.current=false;
     imgModeRef.current=false;
+    imgTargetsRef.current=null;
     imgColorsRef.current=null;
+    refreshCursor();
   }
 
   /* ── Image to particles ──────────────────────────────────────────────── */
-  function activateImage(imageData:ImageData, srcW:number, srcH:number){
+  function activateImage(imageData:ImageData, srcW:number, srcH:number, exactMode = false){
     const{W,H}=getWH();
-    // Sample pixels
-    const pts:{x:number;y:number;r:number;g:number;b:number}[]=[];
-    const step=Math.max(2,Math.floor(Math.sqrt(srcW*srcH/store.particleCount)*0.9));
-    const scaleX=W/srcW, scaleY=H/srcH;
-    for(let y=0;y<srcH;y+=step){
-      for(let x=0;x<srcW;x+=step){
-        const idx=(y*srcW+x)*4;
-        const r=imageData.data[idx]??0;
-        const g=imageData.data[idx+1]??0;
-        const b=imageData.data[idx+2]??0;
-        const a=imageData.data[idx+3]??0;
-        if(a>32) pts.push({
-          x:x*scaleX+(Math.random()-0.5)*step*scaleX,
-          y:y*scaleY+(Math.random()-0.5)*step*scaleY,
-          r,g,b
-        });
-      }
-    }
-    const n=store.particleCount;
+    const exactPoints = exactMode ? extractOpaqueImagePoints(imageData, srcW, srcH).all : [];
+    const sampledPoints = exactMode ? exactPoints : buildAdaptiveImagePointSet(imageData, srcW, srcH, store.particleCount);
+    const samples = sampledPoints.length > 0 ? sampledPoints : [{ x: srcW * 0.5, y: srcH * 0.5, r: 160, g: 180, b: 210, a: 255 }];
+    const n = exactMode ? samples.length : store.particleCount;
+    const fitScale=Math.min(W/Math.max(1,srcW),H/Math.max(1,srcH));
+    const drawW=srcW*fitScale;
+    const drawH=srcH*fitScale;
+    const offsetX=(W-drawW)*0.5;
+    const offsetY=(H-drawH)*0.5;
+
     const p=alloc(n);
-    const itx=new Float32Array(n),ity=new Float32Array(n),itc=new Float32Array(n);
+    const itx=new Float32Array(n),ity=new Float32Array(n);
     const itr=new Float32Array(n),itg=new Float32Array(n),itb=new Float32Array(n);
+
     for(let i=0;i<n;i++){
-      const src=pts[i%pts.length]!;
+      const src=samples[i%samples.length]!;
       p.px[i]=Math.random()*W; p.py[i]=Math.random()*H;
-      p.pvx[i]=(Math.random()-0.5)*6; p.pvy[i]=(Math.random()-0.5)*6;
-      p.pm[i]=0.5+Math.random()*0.5; p.palpha[i]=0.9;
-      itx[i]=src.x; ity[i]=src.y;
+      p.pvx[i]=(Math.random()-0.5)*(exactMode?2.8:4.5);
+      p.pvy[i]=(Math.random()-0.5)*(exactMode?2.8:4.5);
+      const alpha=(src.a??255)/255;
+      p.palpha[i]=clamp(0.28+alpha*0.72,0,1);
+      itx[i]=offsetX + (src.x + 0.5) * fitScale;
+      ity[i]=offsetY + (src.y + 0.5) * fitScale;
       itr[i]=src.r; itg[i]=src.g; itb[i]=src.b;
-      const lum=0.2126*src.r+0.7152*src.g+0.0722*src.b;
-      p.pc[i]=lum/255; itc[i]=lum/255;
+      const lum=(0.2126*src.r+0.7152*src.g+0.0722*src.b)/255;
+      p.pm[i]=0.35+alpha*0.35+(1-lum)*0.8;
+      p.pc[i]=clamp(lum*0.9+alpha*0.1,0,1);
+      const pxRadius=clamp(fitScale*0.52,0.45,3.4);
+      p.psize[i]=exactMode?pxRadius:(0.55+Math.random()*0.9);
     }
-    imgTargetsRef.current={tx:itx,ty:ity,tc:itc,tr:itr,tg:itg,tb:itb};
+
+    imgTargetsRef.current={tx:itx,ty:ity};
     const ir=new Uint8Array(n),ig=new Uint8Array(n),ib2=new Uint8Array(n);
     for(let i=0;i<n;i++){ir[i]=itr[i]!;ig[i]=itg[i]!;ib2[i]=itb[i]!;}
     imgColorsRef.current={r:ir,g:ig,b:ib2};
+    lastImageDataRef.current = { data: imageData, w: srcW, h: srcH, exact: exactMode };
     pRef.current=p;
     shapeModeRef.current=false;
     imgModeRef.current=true;
     textTargetsRef.current=null;
+    refreshCursor();
   }
 
   /* ── Canvas setup ─────────────────────────────────────────────────── */
@@ -518,6 +958,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     const ctx=buf.getContext("2d")!;
     ctx.scale(dpr,dpr);
     offRef.current={buf,ctx};
+    ambientRef.current = createAmbientField(canvas.offsetWidth, canvas.offsetHeight);
     initPreset("galaxy");
 
     const ro=new ResizeObserver(()=>{
@@ -527,22 +968,230 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       b2.width=canvas.width; b2.height=canvas.height;
       const c2=b2.getContext("2d")!; c2.scale(dpr2,dpr2);
       offRef.current={buf:b2,ctx:c2};
+      ambientRef.current = createAmbientField(canvas.offsetWidth, canvas.offsetHeight);
     });
     ro.observe(canvas);
     return()=>ro.disconnect();
   },[]);// eslint-disable-line
 
+  /* ── Pointer controls: left drag rotate, wheel zoom, right click force ── */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const toLocal = (clientX: number, clientY: number) => {
+      const r = canvas.getBoundingClientRect();
+      const lx = clientX - r.left;
+      const ly = clientY - r.top;
+      const inside = lx >= 0 && lx <= r.width && ly >= 0 && ly <= r.height;
+      mouseRef.current.inside = inside;
+      mouseRef.current.x = clamp(lx, 0, r.width);
+      mouseRef.current.y = clamp(ly, 0, r.height);
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      toLocal(e.clientX, e.clientY);
+      if (e.button === 0 && shapeModeRef.current) {
+        const cam = shapeCameraRef.current;
+        cam.dragging = true;
+        cam.lastX = e.clientX;
+        cam.lastY = e.clientY;
+        mouseRef.current.isRotating = true;
+        mouseRef.current.down = false;
+        refreshCursor();
+        e.preventDefault();
+        return;
+      }
+
+      if (e.button === 0 || e.button === 2) {
+        mouseRef.current.down = true;
+        mouseRef.current.rightDown = e.button === 2;
+      }
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      toLocal(e.clientX, e.clientY);
+      const cam = shapeCameraRef.current;
+      if (!cam.dragging) return;
+
+      const dx = e.clientX - cam.lastX;
+      const dy = e.clientY - cam.lastY;
+      cam.lastX = e.clientX;
+      cam.lastY = e.clientY;
+      cam.yaw += dx * cam.rotateSensitivity;
+      cam.pitch = clamp(cam.pitch + dy * cam.rotateSensitivity, -1.2, 1.2);
+    };
+
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button === 0) {
+        shapeCameraRef.current.dragging = false;
+        mouseRef.current.isRotating = false;
+      }
+      if (e.button === 0 || e.button === 2) {
+        mouseRef.current.down = false;
+        mouseRef.current.rightDown = false;
+      }
+      refreshCursor();
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (!shapeModeRef.current) return;
+      e.preventDefault();
+      const cam = shapeCameraRef.current;
+      const dir = Math.sign(e.deltaY);
+      cam.distance = clamp(cam.distance + dir * cam.zoomStep, cam.minDistance, cam.maxDistance);
+    };
+
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    const onMouseEnter = () => {
+      mouseRef.current.inside = true;
+    };
+
+    const onMouseLeave = () => {
+      mouseRef.current.inside = false;
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (!touch) return;
+      toLocal(touch.clientX, touch.clientY);
+      mouseRef.current.inside = true;
+
+      if (shapeModeRef.current) {
+        const cam = shapeCameraRef.current;
+        cam.dragging = true;
+        cam.lastX = touch.clientX;
+        cam.lastY = touch.clientY;
+        mouseRef.current.isRotating = true;
+        mouseRef.current.down = false;
+        refreshCursor();
+      } else {
+        mouseRef.current.down = true;
+      }
+      e.preventDefault();
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (!touch) return;
+      toLocal(touch.clientX, touch.clientY);
+
+      const cam = shapeCameraRef.current;
+      if (cam.dragging) {
+        const dx = touch.clientX - cam.lastX;
+        const dy = touch.clientY - cam.lastY;
+        cam.lastX = touch.clientX;
+        cam.lastY = touch.clientY;
+        cam.yaw += dx * cam.rotateSensitivity;
+        cam.pitch = clamp(cam.pitch + dy * cam.rotateSensitivity, -1.2, 1.2);
+      }
+      e.preventDefault();
+    };
+
+    const onTouchEnd = () => {
+      shapeCameraRef.current.dragging = false;
+      mouseRef.current.isRotating = false;
+      mouseRef.current.down = false;
+      mouseRef.current.inside = false;
+      refreshCursor();
+    };
+
+    canvas.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    canvas.addEventListener("mouseenter", onMouseEnter);
+    canvas.addEventListener("mouseleave", onMouseLeave);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    canvas.addEventListener("contextmenu", onContextMenu);
+    canvas.addEventListener("touchstart", onTouchStart, { passive: false });
+    canvas.addEventListener("touchmove", onTouchMove, { passive: false });
+    canvas.addEventListener("touchend", onTouchEnd);
+    canvas.addEventListener("touchcancel", onTouchEnd);
+
+    refreshCursor();
+
+    return () => {
+      canvas.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      canvas.removeEventListener("mouseenter", onMouseEnter);
+      canvas.removeEventListener("mouseleave", onMouseLeave);
+      canvas.removeEventListener("wheel", onWheel);
+      canvas.removeEventListener("contextmenu", onContextMenu);
+      canvas.removeEventListener("touchstart", onTouchStart);
+      canvas.removeEventListener("touchmove", onTouchMove);
+      canvas.removeEventListener("touchend", onTouchEnd);
+      canvas.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [canvasRef, refreshCursor]);
+
   /* ── Event bus ────────────────────────────────────────────────────── */
   useEffect(()=>{
     const onPreset=(e:Event)=>{const name=(e as CustomEvent).detail as string;store.setActivePreset(name as never);initPreset(name);};
-    const onShape=(e:Event)=>{const s=(e as CustomEvent).detail as string;if(s==="galaxy"){initPreset("galaxy");shapeModeRef.current=false;}else snapToShape(s);};
+    const onShape=(e:Event)=>{
+      const s=(e as CustomEvent).detail as string;
+      if(s==="galaxy"){
+        initPreset("galaxy");
+        shapeModeRef.current=false;
+      }else{
+        snapToShape(s);
+      }
+    };
     const onText=(e:Event)=>activateText((e as CustomEvent).detail as string);
     const onExplode=()=>{const p=pRef.current;if(!p)return;for(let i=0;i<p.count;i++){p.pvx[i]=(p.pvx[i]??0)+(Math.random()-0.5)*24;p.pvy[i]=(p.pvy[i]??0)+(Math.random()-0.5)*24;}};
     const onForce=(e:Event)=>{forceModeRef.current=(e as CustomEvent).detail as "attract"|"repel"|"orbit";};
     const onMorph=(e:Event)=>{morphSpeedRef.current=(e as CustomEvent).detail as number;};
-    const onPCount=(e:Event)=>{store.setParticleCount((e as CustomEvent).detail as number);setTimeout(()=>initPreset(store.activePreset??"galaxy"),30);};
+    const onCustomPalette=(e:Event)=>{
+      const detail=(e as CustomEvent).detail as {enabled:boolean;start:[number,number,number];end:[number,number,number]};
+      customPaletteRef.current={
+        enabled: !!detail?.enabled,
+        start: detail?.start ?? customPaletteRef.current.start,
+        end: detail?.end ?? customPaletteRef.current.end,
+      };
+    };
+    const onRenderTuning=(e:Event)=>{
+      const detail=(e as CustomEvent).detail as RenderTuningState;
+      renderTuningRef.current={
+        brightness: clamp(detail?.brightness ?? renderTuningRef.current.brightness, 0.4, 2.2),
+        glow: clamp(detail?.glow ?? renderTuningRef.current.glow, 0, 2),
+      };
+    };
+    const onCursorField=(e:Event)=>{
+      const detail=(e as CustomEvent).detail as CursorFieldState;
+      cursorFieldRef.current={
+        enabled: !!detail?.enabled,
+        strength: clamp(detail?.strength ?? cursorFieldRef.current.strength, 0.2, 2),
+        radius: clamp(detail?.radius ?? cursorFieldRef.current.radius, 0.5, 2),
+      };
+    };
+    const onPCount=(e:Event)=>{
+      const next=(e as CustomEvent).detail as number;
+      store.setParticleCount(next);
+      setTimeout(()=>{
+        if(shapeModeRef.current&&currentShapeRef.current!=="galaxy"){
+          snapToShape(currentShapeRef.current);
+          return;
+        }
+        if(imgModeRef.current&&lastImageDataRef.current){
+          const{data,w,h,exact}=lastImageDataRef.current;
+          activateImage(data,w,h,exact);
+          return;
+        }
+        if(textTargetsRef.current){
+          activateText(lastTextRef.current||"QUANTUM");
+          return;
+        }
+        initPreset(store.activePreset??"galaxy");
+      },30);
+    };
     const onPhysics=(e:Event)=>{store.setPhysicsMode((e as CustomEvent).detail as never);};
-    const onImageData=(e:Event)=>{const{data,w,h}=(e as CustomEvent).detail as{data:ImageData;w:number;h:number};activateImage(data,w,h);};
+    const onImageData=(e:Event)=>{
+      const{data,w,h,exact}=(e as CustomEvent).detail as{data:ImageData;w:number;h:number;exact?:boolean};
+      activateImage(data,w,h,!!exact);
+    };
 
     window.addEventListener("qf:loadPreset",onPreset);
     window.addEventListener("qf:loadShape",onShape);
@@ -550,6 +1199,9 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     window.addEventListener("qf:explode",onExplode);
     window.addEventListener("qf:forceMode",onForce);
     window.addEventListener("qf:morphSpeed",onMorph);
+    window.addEventListener("qf:customPalette",onCustomPalette);
+    window.addEventListener("qf:renderTuning",onRenderTuning);
+    window.addEventListener("qf:cursorField",onCursorField);
     window.addEventListener("qf:particleCount",onPCount);
     window.addEventListener("qf:physicsMode",onPhysics);
     window.addEventListener("qf:imageData",onImageData);
@@ -560,11 +1212,14 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       window.removeEventListener("qf:explode",onExplode);
       window.removeEventListener("qf:forceMode",onForce);
       window.removeEventListener("qf:morphSpeed",onMorph);
+      window.removeEventListener("qf:customPalette",onCustomPalette);
+      window.removeEventListener("qf:renderTuning",onRenderTuning);
+      window.removeEventListener("qf:cursorField",onCursorField);
       window.removeEventListener("qf:particleCount",onPCount);
       window.removeEventListener("qf:physicsMode",onPhysics);
       window.removeEventListener("qf:imageData",onImageData);
     };
-  });// eslint-disable-line
+  });
 
   /* ── Main frame loop ─────────────────────────────────────────────── */
   const onFrame=useCallback((dt:number)=>{
@@ -573,23 +1228,26 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     const p=pRef.current;
     if(!canvas||!off||!p) return;
 
-    const dpr=window.devicePixelRatio||1;
     const W=canvas.offsetWidth,H=canvas.offsetHeight;
     const DT=Math.min(dt,3)*store.timeScale;
     simTimeRef.current+=dt/60;
-    rotYRef.current+=0.008*store.timeScale; // continuous rotation for shapes
+    refreshCursor();
 
     /* ── Mouse force ── */
-    if(mouseRef.current.down){
+    const hoverForceActive = cursorFieldRef.current.enabled && mouseRef.current.inside && !mouseRef.current.isRotating;
+    const forceActive = (mouseRef.current.down || hoverForceActive) && !mouseRef.current.isRotating;
+    if(forceActive){
       const{x:mx,y:my}=mouseRef.current;
-      const r2Max=store.forceRadius**2;
+      const dynamicRadius=store.forceRadius*(hoverForceActive?cursorFieldRef.current.radius:1);
+      const dynamicStrength=store.forceStrength*(hoverForceActive?cursorFieldRef.current.strength:1);
+      const r2Max=dynamicRadius**2;
       const fm=forceModeRef.current;
       const isOrb=fm==="orbit",isRep=mouseRef.current.shift||fm==="repel";
       for(let i=0;i<p.count;i++){
         const dx=(p.px[i]??0)-mx,dy=(p.py[i]??0)-my;
         const r2=dx*dx+dy*dy;
         if(r2<r2Max&&r2>1){
-          const r=Math.sqrt(r2),f=(store.forceStrength*(1-r/store.forceRadius))/r;
+          const r=Math.sqrt(r2),f=(dynamicStrength*(1-r/dynamicRadius))/r;
           if(isOrb){p.pvx[i]=(p.pvx[i]??0)-dy*f*0.5;p.pvy[i]=(p.pvy[i]??0)+dx*f*0.5;}
           else if(isRep){p.pvx[i]=(p.pvx[i]??0)+dx*f*0.7;p.pvy[i]=(p.pvy[i]??0)+dy*f*0.7;}
           else{p.pvx[i]=(p.pvx[i]??0)-dx*f*0.7;p.pvy[i]=(p.pvy[i]??0)-dy*f*0.7;}
@@ -597,27 +1255,53 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       }
     }
 
-    /* ── Shape morph: fast spring to pre-computed targets with rotation ── */
+    /* ── Shape morph: stable camera + smooth local-space morph ── */
     if(shapeModeRef.current){
-      const ms=Math.min(morphSpeedRef.current*DT,0.35); // clamp for stability
-      const rY=rotYRef.current;
-      const cosY=Math.cos(rY),sinY=Math.sin(rY);
-      const{W:W2,H:H2}=getWH();
-      // Re-compute targets with current rotation angle
-      computeShapeTargets(currentShapeRef.current,p.count,W2,H2,p.tx,p.ty,p.tc);
-      // Apply rotation to targets
-      const cx=W2/2,cy=H2/2;
+      const camera = shapeCameraRef.current;
+      if(!camera.dragging){
+        shapeAutoYawRef.current += 0.0022 * DT;
+      }
+      const cs = 1;
+      const ss = 0;
+      const totalYaw = camera.yaw + shapeAutoYawRef.current;
+      const cy = Math.cos(totalYaw);
+      const sy = Math.sin(totalYaw);
+      const cp = Math.cos(camera.pitch);
+      const sp = Math.sin(camera.pitch);
+      const morphRate = clamp(0.03 + morphSpeedRef.current * 0.24, 0.02, 0.34);
+      const blend = 1 - Math.pow(1 - morphRate, Math.min(3, DT));
+      const projectionScale = Math.min(W, H) * 0.86;
+
       for(let i=0;i<p.count;i++){
-        const lx=(p.tx[i]??0)-cx,ly=(p.ty[i]??0)-cy;
-        const rx=lx*cosY-ly*sinY*0.15+cx;
-        const ry=lx*sinY*0.1+ly*cosY+cy;
-        const dx=rx-(p.px[i]??0),dy=ry-(p.py[i]??0);
-        p.pvx[i]=((p.pvx[i]??0)+dx*ms)*0.82;
-        p.pvy[i]=((p.pvy[i]??0)+dy*ms)*0.82;
-        p.px[i]=(p.px[i]??0)+(p.pvx[i]??0)*DT;
-        p.py[i]=(p.py[i]??0)+(p.pvy[i]??0)*DT;
-        p.pc[i]=p.tc[i]!;
-        p.palpha[i]=0.75+Math.random()*0.25;
+        const dx = (p.stx[i] ?? 0) - (p.sx[i] ?? 0);
+        const dy = (p.sty[i] ?? 0) - (p.sy[i] ?? 0);
+        const dz = (p.stz[i] ?? 0) - (p.sz[i] ?? 0);
+        p.sx[i] = (p.sx[i] ?? 0) + dx * blend;
+        p.sy[i] = (p.sy[i] ?? 0) + dy * blend;
+        p.sz[i] = (p.sz[i] ?? 0) + dz * blend;
+        p.svx[i] = 0;
+        p.svy[i] = 0;
+        p.svz[i] = 0;
+
+        const ox = (p.sx[i] ?? 0) * cs - (p.sz[i] ?? 0) * ss;
+        const oz = (p.sx[i] ?? 0) * ss + (p.sz[i] ?? 0) * cs;
+        const oy = p.sy[i] ?? 0;
+
+        const xYaw = ox * cy - oz * sy;
+        const zYaw = ox * sy + oz * cy;
+        const yPitch = oy * cp - zYaw * sp;
+        const zPitch = oy * sp + zYaw * cp;
+
+        const depth = camera.distance - zPitch;
+        const perspective = 1 / Math.max(0.32, depth);
+
+        p.px[i] = W * 0.5 + xYaw * projectionScale * perspective;
+        p.py[i] = H * 0.5 + yPitch * projectionScale * perspective;
+
+        const depthMix = clamp((camera.maxDistance - depth) / (camera.maxDistance - camera.minDistance + 1.8), 0, 1);
+        p.pc[i] = clamp((p.tc[i] ?? 0.5) * 0.86 + depthMix * 0.22, 0, 1);
+        p.palpha[i] = 0.38 + depthMix * 0.58;
+        p.pm[i] = 0.5 + (p.psize[i] ?? 1) * 0.85 + depthMix * 0.3;
       }
     }
     /* ── Image morph ── */
@@ -701,7 +1385,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
             const f=G*mass/r2;ax+=f*dx/r;ay+=f*dy/r;
           }
           const dcx=W/2-(p.px[i]??0),dcy=H/2-(p.py[i]??0);
-          const rc2=dcx*dcx+dcy*dcy+400,rc=Math.sqrt(rc2);
+          const rc2=dcx*dcx+dcy*dcy+400;
           ax+=G*0.4*dcx/rc2;ay+=G*0.4*dcy/rc2;
           p.pvx[i]=((p.pvx[i]??0)+ax*DT)*0.9998;
           p.pvy[i]=((p.pvy[i]??0)+ay*DT)*0.9998;
@@ -716,17 +1400,65 @@ export function useParticleEngine({canvasRef}:EngineOptions){
 
     /* ── Render ───────────────────────────────────────────────────────── */
     const{ctx:oc,buf}=off;
-    // Trail — no white flicker: always pure dark fill
-    oc.fillStyle=`rgba(13,14,19,${1-store.trailDecay})`;
+    oc.fillStyle=`rgba(2,5,9,${Math.max(0.03, 1-store.trailDecay)})`;
     oc.fillRect(0,0,W,H);
 
+    const atmosphere = oc.createRadialGradient(W * 0.5, H * 0.45, Math.min(W, H) * 0.08, W * 0.5, H * 0.5, Math.min(W, H) * 0.78);
+    atmosphere.addColorStop(0, "rgba(0,255,210,0.05)");
+    atmosphere.addColorStop(0.35, "rgba(0,180,255,0.03)");
+    atmosphere.addColorStop(0.7, "rgba(7,29,52,0.02)");
+    atmosphere.addColorStop(1, "rgba(0,0,0,0)");
+    oc.fillStyle = atmosphere;
+    oc.fillRect(0, 0, W, H);
+
+    const ambient = ambientRef.current;
+    if (ambient) {
+      oc.save();
+      oc.globalCompositeOperation = "lighter";
+      for (let i = 0; i < ambient.count; i++) {
+        let x = ambient.x[i] ?? 0;
+        let y = ambient.y[i] ?? 0;
+        const driftX = (ambient.vx[i] ?? 0) + Math.sin(simTimeRef.current * 0.1 + i * 0.021) * 0.005;
+        const driftY = (ambient.vy[i] ?? 0) + Math.cos(simTimeRef.current * 0.09 + i * 0.017) * 0.005;
+        x += driftX * DT * 0.35;
+        y += driftY * DT * 0.35;
+        if (x < -6) x = W + 6;
+        else if (x > W + 6) x = -6;
+        if (y < -6) y = H + 6;
+        else if (y > H + 6) y = -6;
+        ambient.x[i] = x;
+        ambient.y[i] = y;
+
+        const hue = ambient.hue[i] ?? 0;
+        const r = Math.round(24 + hue * 60);
+        const g = Math.round(88 + hue * 140);
+        const b = Math.round(158 + hue * 95);
+        const a = (ambient.alpha[i] ?? 0.1) * (0.6 + 0.4 * Math.sin(simTimeRef.current * 0.4 + i * 0.013));
+        const s = ambient.size[i] ?? 1;
+
+        oc.fillStyle = `rgba(${r},${g},${b},${a * 0.35})`;
+        oc.beginPath();
+        oc.arc(x, y, s, 0, Math.PI * 2);
+        oc.fill();
+      }
+      oc.restore();
+    }
+
     const sz=store.particleSize;
-    const bm=store.bloomIntensity;
+    const tuning=renderTuningRef.current;
+    const bm=store.bloomIntensity*tuning.glow;
     const cm=CMAPS[store.colormap]??CMAPS["viridis"]!;
     const useImgColor=imgModeRef.current&&!!imgColorsRef.current;
     const imgC=imgColorsRef.current;
+    const customPalette=customPaletteRef.current;
+    const shapeDensity = shapeModeRef.current ? clamp(24000 / Math.max(9000, p.count), 0.32, 1) : 1;
+    const shapeSizeFactor = shapeModeRef.current ? (0.5 + shapeDensity * 0.42) : 1;
+    const shapeAlphaFactor = shapeModeRef.current ? (0.38 + shapeDensity * 0.44) : 1;
+    const haloFactor = shapeModeRef.current ? 0.24 : 1;
 
-    // Pre-build color string cache for this frame (optional small batch)
+    oc.save();
+    oc.globalCompositeOperation = shapeModeRef.current ? "source-over" : "lighter";
+
     for(let i=0;i<p.count;i++){
       const x=p.px[i]??0,y=p.py[i]??0;
       if(x<-8||x>W+8||y<-8||y>H+8) continue;
@@ -736,44 +1468,73 @@ export function useParticleEngine({canvasRef}:EngineOptions){
         r=imgC.r[i]??128; g=imgC.g[i]??128; b=imgC.b[i]??128;
       }else{
         const t=Math.min(1,Math.max(0,p.pc[i]??0));
-        [r,g,b]=cm(t);
+        if(customPalette.enabled){
+          [r,g,b]=lerpRgb(customPalette.start,customPalette.end,t);
+        }else{
+          [r,g,b]=cm(t);
+        }
       }
-      const a=Math.min(1,Math.max(0,p.palpha[i]??0.8));
+      if(!useImgColor){
+        r=clamp(Math.round(r*tuning.brightness),0,255);
+        g=clamp(Math.round(g*tuning.brightness),0,255);
+        b=clamp(Math.round(b*tuning.brightness),0,255);
+      }
+      [r,g,b]=limitLuma(r,g,b,shapeModeRef.current?188:224);
+      const baseA=Math.min(1,Math.max(0,p.palpha[i]??0.8));
+      const a=Math.min(0.92,baseA*shapeAlphaFactor);
       const mass=p.pm[i]??1;
-      const s=sz*(0.55+mass*0.45);
+      const speed=Math.sqrt((p.pvx[i]??0)**2+(p.pvy[i]??0)**2);
+      const s=imgModeRef.current
+        ? Math.max(0.42,(p.psize[i]??1)*0.9*sz*0.72)
+        : sz*(0.34 + (p.psize[i] ?? 1) * 0.95 + mass * 0.18 + Math.min(0.7, speed * 0.08))*shapeSizeFactor;
 
-      // Layer 1: large soft outer glow
-      if(bm>0.1&&a>0.35){
-        const glowR=s*5+3;
+      // Layer 1: cinematic outer halo
+      if(!imgModeRef.current&&bm>0.1&&a>0.35){
+        const glowR=s*6.2+4;
         const grd=oc.createRadialGradient(x,y,0,x,y,glowR);
-        grd.addColorStop(0,`rgba(${r},${g},${b},${a*bm*0.25})`);
-        grd.addColorStop(0.4,`rgba(${r},${g},${b},${a*bm*0.1})`);
+        grd.addColorStop(0,`rgba(${r},${g},${b},${a*bm*0.22*haloFactor})`);
+        grd.addColorStop(0.45,`rgba(${r},${g},${b},${a*bm*0.08*haloFactor})`);
         grd.addColorStop(1,"rgba(0,0,0,0)");
         oc.fillStyle=grd;
         oc.beginPath();oc.arc(x,y,glowR,0,Math.PI*2);oc.fill();
       }
 
-      // Layer 2: medium glow halo
-      if(bm>0.3&&a>0.5){
-        const glowR2=s*2.5+1;
+      // Layer 2: dense glow halo
+      if(!imgModeRef.current&&bm>0.3&&a>0.5){
+        const glowR2=s*3.1+1;
         const grd2=oc.createRadialGradient(x,y,0,x,y,glowR2);
-        grd2.addColorStop(0,`rgba(${r},${g},${b},${a*bm*0.55})`);
+        grd2.addColorStop(0,`rgba(${r},${g},${b},${a*bm*0.43*haloFactor})`);
         grd2.addColorStop(1,"rgba(0,0,0,0)");
         oc.fillStyle=grd2;
         oc.beginPath();oc.arc(x,y,glowR2,0,Math.PI*2);oc.fill();
       }
 
       // Layer 3: bright core dot
-      oc.fillStyle=`rgba(${r},${g},${b},${a})`;
+      oc.fillStyle=`rgba(${r},${g},${b},${Math.min(0.94,a)})`;
       oc.beginPath();oc.arc(x,y,Math.max(0.5,s),0,Math.PI*2);oc.fill();
 
-      // Layer 4: specular highlight (tiny bright center)
-      if(s>1.2&&a>0.6&&bm>0.2){
+      // Layer 4: subtle tinted highlight to avoid white clipping.
+      if(!shapeModeRef.current&&s>1.2&&a>0.6&&bm>0.2){
         const hr=Math.max(0.3,s*0.35);
-        oc.fillStyle=`rgba(255,255,255,${a*0.55})`;
+        const [hrR,hrG,hrB]=lerpRgb([r,g,b],[255,255,255],0.18);
+        oc.fillStyle=`rgba(${hrR},${hrG},${hrB},${a*0.2})`;
         oc.beginPath();oc.arc(x-s*0.2,y-s*0.2,hr,0,Math.PI*2);oc.fill();
       }
     }
+
+    oc.restore();
+
+    const gradeOverlay = oc.createLinearGradient(0, 0, 0, H);
+    gradeOverlay.addColorStop(0, "rgba(0,20,35,0.08)");
+    gradeOverlay.addColorStop(1, "rgba(0,4,10,0.18)");
+    oc.fillStyle = gradeOverlay;
+    oc.fillRect(0, 0, W, H);
+
+    const vignette = oc.createRadialGradient(W * 0.5, H * 0.5, Math.min(W, H) * 0.32, W * 0.5, H * 0.5, Math.min(W, H) * 0.72);
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, "rgba(0,0,0,0.62)");
+    oc.fillStyle = vignette;
+    oc.fillRect(0, 0, W, H);
 
     // Overlays
     if(store.activePreset==="doubleslit"){
@@ -787,21 +1548,22 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       oc.fillStyle=grd3;oc.beginPath();oc.arc(W/2,H/2,55,0,Math.PI*2);oc.fill();
     }
     // Mouse force ring
-    if(mouseRef.current.down){
+    if(forceActive){
       const{x:mx,y:my}=mouseRef.current;
       const fm=forceModeRef.current;
       const[cr,cg,cb]=fm==="orbit"?[172,137,255]:fm==="repel"?[172,137,255]:[143,245,255];
-      const mgrd=oc.createRadialGradient(mx,my,0,mx,my,store.forceRadius);
+      const ringRadius=store.forceRadius*(hoverForceActive?cursorFieldRef.current.radius:1);
+      const mgrd=oc.createRadialGradient(mx,my,0,mx,my,ringRadius);
       mgrd.addColorStop(0,`rgba(${cr},${cg},${cb},0.15)`);mgrd.addColorStop(1,"transparent");
-      oc.fillStyle=mgrd;oc.beginPath();oc.arc(mx,my,store.forceRadius,0,Math.PI*2);oc.fill();
+      oc.fillStyle=mgrd;oc.beginPath();oc.arc(mx,my,ringRadius,0,Math.PI*2);oc.fill();
       oc.strokeStyle=`rgba(${cr},${cg},${cb},0.25)`;oc.lineWidth=1;
-      oc.beginPath();oc.arc(mx,my,store.forceRadius,0,Math.PI*2);oc.stroke();
+      oc.beginPath();oc.arc(mx,my,ringRadius,0,Math.PI*2);oc.stroke();
     }
 
     // Blit to screen — no globalCompositeOperation changes to avoid flicker
     const mainCtx=canvas.getContext("2d")!;
-    mainCtx.clearRect(0,0,W*dpr,H*dpr);
-    mainCtx.drawImage(buf,0,0,W*dpr,H*dpr);
+    mainCtx.clearRect(0,0,canvas.width,canvas.height);
+    mainCtx.drawImage(buf,0,0,canvas.width,canvas.height);
 
     // Stats update (every ~30 frames)
     const fpsCtr=fpsRef.current;
@@ -812,12 +1574,13 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       store.setFps(fps2);
       let ke=0;const sm=Math.min(p.count,300);
       for(let i=0;i<sm;i++) ke+=0.5*(p.pm[i]??1)*((p.pvx[i]??0)**2+(p.pvy[i]??0)**2);
-      store.setKineticEnergy(Math.round(ke*(p.count/sm)));
+      const keRounded=Math.round(ke*(p.count/sm));
+      store.setKineticEnergy(keRounded);
       store.incrementSimTime(1);
       const cnt=p.count.toLocaleString();
       ["s-count","hud-count"].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=cnt;});
       ["s-fps","hud-fps"].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=String(fps2);});
-      const keStr=store.kineticEnergy.toLocaleString();
+      const keStr=keRounded.toLocaleString();
       ["s-ke","hud-ke"].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=keStr;});
       const tStr=simTimeRef.current.toFixed(1)+"s";
       ["s-time","hud-time"].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=tStr;});

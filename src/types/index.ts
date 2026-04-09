@@ -105,6 +105,7 @@ export interface SimulatorState {
   gestureEnabled: boolean;
   showEquation: boolean;
   showStats: boolean;
+  annPanelOpen: boolean;
 }
 
 export interface PhysicsParams {
