@@ -250,6 +250,24 @@ function computeShapeTargets3D(
       }
       break;
     }
+    case "helix": {
+      const turns = 9;
+      for (let i = 0; i < n; i++) {
+        const t = (i / Math.max(1, n)) * turns * Math.PI * 2;
+        const strand = i % 3;
+        const phase = strand * (Math.PI * 2 / 3);
+        const radius = 0.54 + strand * 0.08;
+        const x = Math.cos(t + phase) * radius;
+        const y = (i / Math.max(1, n) - 0.5) * 2.2;
+        const z = Math.sin(t + phase) * radius;
+        tx[i] = x;
+        ty[i] = y;
+        tz[i] = z;
+        tc[i] = clamp(0.12 + strand * 0.24 + (y + 1.1) * 0.28, 0, 1);
+      }
+      break;
+    }
+    case "donut":
     case "torus": {
       const R1 = 0.95;
       const R2 = 0.34;
@@ -396,6 +414,54 @@ function computeShapeTargets3D(
         ty[i] = v;
         tz[i] = z;
         tc[i] = clamp((z + 0.4) / 0.8, 0, 1);
+      }
+      break;
+    }
+    case "lissajous": {
+      for (let i = 0; i < n; i++) {
+        const t = (i / Math.max(1, n)) * Math.PI * 2;
+        const x = Math.sin(3 * t + Math.PI * 0.5) * 0.96;
+        const y = Math.sin(4 * t) * 0.72;
+        const z = Math.sin(5 * t + Math.PI * 0.25) * 0.96;
+        tx[i] = x;
+        ty[i] = y;
+        tz[i] = z;
+        tc[i] = clamp((z + 1) * 0.5, 0, 1);
+      }
+      break;
+    }
+    case "flower": {
+      const petals = 7;
+      const layers = 9;
+      for (let i = 0; i < n; i++) {
+        const t = (i / Math.max(1, n)) * Math.PI * 2;
+        const layer = ((i % layers) / Math.max(1, layers - 1) - 0.5) * 0.58;
+        const r = 0.52 + Math.cos(t * petals) * 0.3;
+        const x = Math.cos(t) * r;
+        const z = Math.sin(t) * r;
+        const y = layer + Math.sin(t * (petals * 0.5)) * 0.22;
+        tx[i] = x;
+        ty[i] = y;
+        tz[i] = z;
+        tc[i] = clamp((r + 0.1) / 1.0, 0, 1);
+      }
+      break;
+    }
+    case "crystal": {
+      const golden = Math.PI * (3 - Math.sqrt(5));
+      for (let i = 0; i < n; i++) {
+        const u = (i + 0.5) / Math.max(1, n);
+        const phi = Math.acos(1 - 2 * u);
+        const theta = i * golden;
+        const spike = Math.pow(Math.abs(Math.sin(theta * 3.3) * Math.cos(phi * 2.4)), 0.62);
+        const r = 0.42 + spike * 0.62;
+        const x = Math.sin(phi) * Math.cos(theta) * r;
+        const y = Math.sin(phi) * Math.sin(theta) * r;
+        const z = Math.cos(phi) * r;
+        tx[i] = x;
+        ty[i] = y;
+        tz[i] = z;
+        tc[i] = clamp(0.2 + spike * 0.75, 0, 1);
       }
       break;
     }
@@ -684,22 +750,69 @@ const PRESET_INITS:Record<string,InitFn>={
     }
   },
   solar(p,W,H){
-    const planets=[{r:60,n:180},{r:100,n:250},{r:145,n:350},{r:195,n:420},{r:250,n:500},{r:295,n:350},{r:330,n:280},{r:365,n:180}];
+    const cx=W/2,cy=H/2;
+    const planets=[
+      {orbit:58,size:2.6,speed:1.68,count:0.05,tint:0.14},
+      {orbit:86,size:3.2,speed:1.24,count:0.055,tint:0.21},
+      {orbit:118,size:3.6,speed:1.0,count:0.06,tint:0.32},
+      {orbit:152,size:2.8,speed:0.82,count:0.05,tint:0.42},
+      {orbit:192,size:7.8,speed:0.44,count:0.09,tint:0.55},
+      {orbit:236,size:7.0,speed:0.35,count:0.08,tint:0.63},
+      {orbit:278,size:5.1,speed:0.26,count:0.07,tint:0.74},
+      {orbit:314,size:4.9,speed:0.21,count:0.065,tint:0.82},
+    ];
+
     let idx=0;
-    for(let j=0;j<400&&idx<p.count;j++,idx++){
-      const a=Math.random()*Math.PI*2,rad=Math.random()*16;
-      p.px[idx]=W/2+Math.cos(a)*rad; p.py[idx]=H/2+Math.sin(a)*rad;
-      p.pvx[idx]=(Math.random()-0.5)*0.2; p.pvy[idx]=(Math.random()-0.5)*0.2;
-      p.pm[idx]=3; p.pc[idx]=0.95; p.palpha[idx]=1;
+    const sunCount=Math.min(Math.floor(p.count*0.1),1700);
+    for(let j=0;j<sunCount&&idx<p.count;j++,idx++){
+      const a=Math.random()*Math.PI*2;
+      const rad=Math.sqrt(Math.random())*16;
+      p.px[idx]=cx+Math.cos(a)*rad;
+      p.py[idx]=cy+Math.sin(a)*rad;
+      p.pvx[idx]=(Math.random()-0.5)*0.15;
+      p.pvy[idx]=(Math.random()-0.5)*0.15;
+      p.pm[idx]=2.6+Math.random()*0.8;
+      p.pc[idx]=0.95;
+      p.palpha[idx]=0.92+Math.random()*0.08;
+      p.psize[idx]=1.2+Math.random()*1.8;
     }
-    for(const pl of planets){
-      const sp=Math.sqrt(1200/pl.r)*0.65;
-      for(let j=0;j<pl.n&&idx<p.count;j++,idx++){
-        const a=Math.random()*Math.PI*2,dr=(Math.random()-0.5)*12;
-        p.px[idx]=W/2+Math.cos(a)*(pl.r+dr); p.py[idx]=H/2+Math.sin(a)*(pl.r+dr);
-        p.pvx[idx]=-Math.sin(a)*sp+(Math.random()-0.5)*0.3; p.pvy[idx]=Math.cos(a)*sp+(Math.random()-0.5)*0.3;
-        p.pm[idx]=0.4+Math.random(); p.pc[idx]=pl.r/400; p.palpha[idx]=0.6+Math.random()*0.4;
+
+    for(let pi=0;pi<planets.length&&idx<p.count;pi++){
+      const pl=planets[pi]!;
+      const clusterCount=Math.max(120,Math.floor(p.count*pl.count));
+      const baseAngle=hash01(pi,8.6)*Math.PI*2;
+      const px0=cx+Math.cos(baseAngle)*pl.orbit;
+      const py0=cy+Math.sin(baseAngle)*pl.orbit*0.78;
+      const orbitSpeed=Math.sqrt(1200/pl.orbit)*0.62*pl.speed;
+      for(let j=0;j<clusterCount&&idx<p.count;j++,idx++){
+        const localA=Math.random()*Math.PI*2;
+        const localR=Math.sqrt(Math.random())*pl.size;
+        const ox=Math.cos(localA)*localR;
+        const oy=Math.sin(localA)*localR;
+        p.px[idx]=px0+ox;
+        p.py[idx]=py0+oy;
+        p.pvx[idx]=-Math.sin(baseAngle)*orbitSpeed-oy*0.045+(Math.random()-0.5)*0.08;
+        p.pvy[idx]=Math.cos(baseAngle)*orbitSpeed+ox*0.045+(Math.random()-0.5)*0.08;
+        p.pm[idx]=0.9+Math.random()*0.8;
+        p.pc[idx]=pl.tint+Math.random()*0.12;
+        p.palpha[idx]=0.72+Math.random()*0.24;
+        p.psize[idx]=0.75+Math.random()*0.75;
       }
+    }
+
+    while(idx<p.count){
+      const a=Math.random()*Math.PI*2;
+      const r=170+Math.random()*95;
+      p.px[idx]=cx+Math.cos(a)*r;
+      p.py[idx]=cy+Math.sin(a)*r*0.8;
+      const sp=Math.sqrt(1100/r)*0.45;
+      p.pvx[idx]=-Math.sin(a)*sp+(Math.random()-0.5)*0.16;
+      p.pvy[idx]=Math.cos(a)*sp+(Math.random()-0.5)*0.16;
+      p.pm[idx]=0.25+Math.random()*0.4;
+      p.pc[idx]=0.48+Math.random()*0.24;
+      p.palpha[idx]=0.45+Math.random()*0.3;
+      p.psize[idx]=0.5+Math.random()*0.4;
+      idx++;
     }
   },
   bec(p,W,H){
@@ -760,6 +873,154 @@ const PRESET_INITS:Record<string,InitFn>={
       }
     }
   },
+  cnn(p,W,H){
+    const layers=5;
+    const rows=8;
+    const cols=14;
+    const cellY=(H*0.68)/rows;
+    const cellX=(W*0.72)/Math.max(1,layers-1);
+    for(let i=0;i<p.count;i++){
+      const layer=i%layers;
+      const idx=Math.floor(i/layers);
+      const gx=idx%cols;
+      const gy=Math.floor(idx/cols)%rows;
+      const jitterX=(Math.random()-0.5)*6;
+      const jitterY=(Math.random()-0.5)*6;
+      p.px[i]=W*0.14+layer*cellX+jitterX;
+      p.py[i]=H*0.16+gy*cellY+jitterY;
+      p.pvx[i]=(Math.random()-0.5)*0.18;
+      p.pvy[i]=(Math.random()-0.5)*0.18;
+      p.pm[i]=0.4+Math.random()*0.35;
+      p.pc[i]=layer/Math.max(1,layers-1);
+      p.palpha[i]=0.62+Math.random()*0.3;
+    }
+  },
+  transformer(p,W,H){
+    const heads=8;
+    const tokens=26;
+    for(let i=0;i<p.count;i++){
+      const head=i%heads;
+      const token=Math.floor(i/heads)%tokens;
+      const t=token/Math.max(1,tokens-1);
+      const x=W*0.1+t*W*0.8;
+      const y=H*0.24+head*(H*0.5/Math.max(1,heads-1));
+      p.px[i]=x+(Math.random()-0.5)*7;
+      p.py[i]=y+Math.sin(t*Math.PI*2+head*0.8)*10+(Math.random()-0.5)*4;
+      p.pvx[i]=(Math.random()-0.5)*0.16;
+      p.pvy[i]=(Math.random()-0.5)*0.16;
+      p.pm[i]=0.35+Math.random()*0.4;
+      p.pc[i]=0.18+head/Math.max(1,heads-1)*0.72;
+      p.palpha[i]=0.58+Math.random()*0.34;
+    }
+  },
+  gan(p,W,H){
+    const half=Math.floor(p.count/2);
+    const leftX=W*0.34,rightX=W*0.66,cy=H*0.5;
+    for(let i=0;i<p.count;i++){
+      const isGen=i<half;
+      const cx=isGen?leftX:rightX;
+      const a=Math.random()*Math.PI*2;
+      const r=(Math.random()**0.8)*(Math.min(W,H)*0.18);
+      p.px[i]=cx+Math.cos(a)*r;
+      p.py[i]=cy+Math.sin(a)*r*0.82;
+      const drift=isGen?1:-1;
+      p.pvx[i]=drift*(0.15+Math.random()*0.35)+(-Math.sin(a)*0.18);
+      p.pvy[i]=Math.cos(a)*0.18+(Math.random()-0.5)*0.2;
+      p.pm[i]=0.45+Math.random()*0.5;
+      p.pc[i]=isGen?0.22+Math.random()*0.22:0.66+Math.random()*0.22;
+      p.palpha[i]=0.62+Math.random()*0.32;
+    }
+  },
+  strings(p,W,H){
+    const strands=6;
+    for(let i=0;i<p.count;i++){
+      const strand=i%strands;
+      const t=Math.floor(i/strands)/Math.max(1,Math.floor(p.count/strands)-1);
+      const x=W*0.08+t*W*0.84+(Math.random()-0.5)*3;
+      const baseY=H*0.2+strand*(H*0.6/Math.max(1,strands-1));
+      const y=baseY+Math.sin(t*Math.PI*12+strand*0.9)*18+(Math.random()-0.5)*3;
+      p.px[i]=x;
+      p.py[i]=y;
+      p.pvx[i]=0.12+Math.random()*0.18;
+      p.pvy[i]=(Math.random()-0.5)*0.26;
+      p.pm[i]=0.28+Math.random()*0.24;
+      p.pc[i]=strand/Math.max(1,strands-1);
+      p.palpha[i]=0.56+Math.random()*0.3;
+    }
+  },
+  supernova(p,W,H){
+    const cx=W/2,cy=H/2;
+    for(let i=0;i<p.count;i++){
+      const a=Math.random()*Math.PI*2;
+      const r=Math.random()*14;
+      const sp=2.4+Math.random()*8.8+((i/p.count)*2.4);
+      p.px[i]=cx+Math.cos(a)*r;
+      p.py[i]=cy+Math.sin(a)*r;
+      p.pvx[i]=Math.cos(a)*sp;
+      p.pvy[i]=Math.sin(a)*sp;
+      p.pm[i]=0.25+Math.random()*0.75;
+      p.pc[i]=0.55+Math.random()*0.45;
+      p.palpha[i]=0.7+Math.random()*0.3;
+    }
+  },
+  electroncloud(p,W,H){
+    const cx=W/2,cy=H/2;
+    for(let i=0;i<p.count;i++){
+      const shell=(i%6)+1;
+      const theta=Math.random()*Math.PI*2;
+      const phi=Math.acos(1-2*Math.random());
+      const radius=22+shell*18+Math.random()*14;
+      const x=Math.sin(phi)*Math.cos(theta)*radius;
+      const y=Math.sin(phi)*Math.sin(theta)*radius;
+      p.px[i]=cx+x;
+      p.py[i]=cy+y;
+      p.pvx[i]=-Math.sin(theta)*(0.45+shell*0.03)+(Math.random()-0.5)*0.15;
+      p.pvy[i]=Math.cos(theta)*(0.45+shell*0.03)+(Math.random()-0.5)*0.15;
+      p.pm[i]=0.25+Math.random()*0.4;
+      p.pc[i]=shell/7;
+      p.palpha[i]=0.5+Math.random()*0.32;
+    }
+  },
+  wavecollapse(p,W,H){
+    const cx=W/2,cy=H/2;
+    for(let i=0;i<p.count;i++){
+      const a=Math.random()*Math.PI*2;
+      const r=(Math.random()**0.65)*Math.min(W,H)*0.43;
+      const phase=r*0.08+Math.random()*Math.PI*2;
+      p.px[i]=cx+Math.cos(a)*r;
+      p.py[i]=cy+Math.sin(a)*r*(0.82+0.18*Math.sin(phase));
+      p.pvx[i]=Math.cos(a)*(0.35+Math.sin(phase)*0.28)-Math.sin(a)*0.2;
+      p.pvy[i]=Math.sin(a)*(0.35+Math.sin(phase)*0.28)+Math.cos(a)*0.2;
+      p.pm[i]=0.28+Math.random()*0.45;
+      p.pc[i]=0.5+0.5*Math.sin(phase);
+      p.palpha[i]=0.58+Math.random()*0.34;
+      p.pphase[i]=phase;
+    }
+  },
+  portrait(p,W,H){
+    const cx=W/2,cy=H/2;
+    for(let i=0;i<p.count;i++){
+      const a=Math.random()*Math.PI*2;
+      const r=Math.sqrt(Math.random());
+      let x=Math.cos(a)*r*W*0.16;
+      let y=Math.sin(a)*r*H*0.24;
+      const eyeL=(x+W*0.045)**2+(y+H*0.03)**2;
+      const eyeR=(x-W*0.045)**2+(y+H*0.03)**2;
+      if(eyeL<(W*0.012)**2||eyeR<(W*0.012)**2){
+        y-=H*0.028;
+      }
+      if(y>H*0.08&&Math.abs(x)<W*0.03){
+        y+=H*0.022;
+      }
+      p.px[i]=cx+x+(Math.random()-0.5)*2;
+      p.py[i]=cy+y+(Math.random()-0.5)*2;
+      p.pvx[i]=(Math.random()-0.5)*0.22;
+      p.pvy[i]=(Math.random()-0.5)*0.22;
+      p.pm[i]=0.4+Math.random()*0.5;
+      p.pc[i]=clamp((y/(H*0.24))+0.5,0,1);
+      p.palpha[i]=0.6+Math.random()*0.32;
+    }
+  },
   tunneling(p,W,H){
     for(let i=0;i<p.count;i++){
       p.px[i]=20+Math.random()*W*0.3; p.py[i]=H*0.2+Math.random()*H*0.6;
@@ -782,6 +1043,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   const {renderMode}=useWebGPU();
   const pRef=useRef<Particles|null>(null);
   const offRef=useRef<{buf:HTMLCanvasElement;ctx:CanvasRenderingContext2D}|null>(null);
+  const rebuildLayersRef=useRef<(() => void) | null>(null);
   const layersRef=useRef<RenderLayers|null>(null);
   const screenCtxRef=useRef<CanvasRenderingContext2D|null>(null);
   const gradientCacheRef = useRef<{ atmosphere: CanvasGradient; grade: CanvasGradient; vignette: CanvasGradient; w: number; h: number } | null>(null);
@@ -798,7 +1060,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   const imgTargetsRef=useRef<{tx:Float32Array;ty:Float32Array}|null>(null);
   const shapeModeRef=useRef(false);
   const imgModeRef=useRef(false);
-  const currentShapeRef=useRef("galaxy");
+  const currentShapeRef=useRef("sphere");
   const shapeCameraRef = useRef<ShapeCameraState>({
     yaw: 0,
     pitch: -0.18,
@@ -825,6 +1087,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   const morphSpeedRef=useRef(0.2);
   const simTimeRef=useRef(0);
   const fpsRef=useRef({frames:0,acc:0,fps:0});
+  const perfRef=useRef({smoothedFps:60,frame:0});
   const mouseRef=useRef({x:0,y:0,down:false,rightDown:false,shift:false,isRotating:false,inside:false});
   // image colormap override (per-particle RGB when using image mode)
   const imgColorsRef=useRef<{r:Uint8Array;g:Uint8Array;b:Uint8Array}|null>(null);
@@ -844,7 +1107,19 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   function snapToShape(shape:string){
     const{W,H}=getWH();
     let p=pRef.current;
-    if(!p){p=alloc(storeStateRef.current.particleCount);pRef.current=p;}
+    if(!p){
+      p=alloc(storeStateRef.current.particleCount);
+      for(let i=0;i<p.count;i++){
+        p.px[i]=Math.random()*W;
+        p.py[i]=Math.random()*H;
+        p.pvx[i]=(Math.random()-0.5)*2.4;
+        p.pvy[i]=(Math.random()-0.5)*2.4;
+        p.pm[i]=0.45+Math.random()*0.95;
+        p.pc[i]=Math.random();
+        p.palpha[i]=0.65+Math.random()*0.35;
+      }
+      pRef.current=p;
+    }
     const n=p.count;
 
     if (!shapeModeRef.current) {
@@ -995,7 +1270,10 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     const buildLayers = (): void => {
       const width = Math.max(1, canvas.offsetWidth);
       const height = Math.max(1, canvas.offsetHeight);
-      const dpr = window.devicePixelRatio || 1;
+      const deviceDpr = window.devicePixelRatio || 1;
+      const count = storeStateRef.current.particleCount;
+      const dprCap = count >= 160000 ? 1 : count >= 90000 ? 1.15 : 1.35;
+      const dpr = Math.max(0.85, Math.min(deviceDpr, dprCap));
 
       canvas.width = Math.max(1, Math.floor(width * dpr));
       canvas.height = Math.max(1, Math.floor(height * dpr));
@@ -1018,14 +1296,19 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       ambientRef.current = createAmbientField(width, height);
     };
 
+    rebuildLayersRef.current = buildLayers;
+
     buildLayers();
-    initPreset("galaxy");
+    snapToShape("sphere");
 
     const ro=new ResizeObserver(()=>{
       buildLayers();
     });
     ro.observe(canvas);
-    return()=>ro.disconnect();
+    return()=>{
+      rebuildLayersRef.current = null;
+      ro.disconnect();
+    };
   },[]);// eslint-disable-line
 
   /* ── Pointer controls: left drag rotate, wheel zoom, right click force ── */
@@ -1224,6 +1507,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     const onPCount=(e:Event)=>{
       const next=(e as CustomEvent).detail as number;
       storeStateRef.current.setParticleCount(next);
+      rebuildLayersRef.current?.();
       setTimeout(()=>{
         if(shapeModeRef.current&&currentShapeRef.current!=="galaxy"){
           snapToShape(currentShapeRef.current);
@@ -1289,7 +1573,10 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     const W=canvas.offsetWidth,H=canvas.offsetHeight;
     const DT=Math.min(dt,3)*store.timeScale;
     simTimeRef.current+=dt/60;
-    refreshCursor();
+    const perf=perfRef.current;
+    const instantFps = 60 / Math.max(0.001, dt);
+    perf.smoothedFps = perf.smoothedFps * 0.92 + instantFps * 0.08;
+    perf.frame++;
 
     /* ── Mouse force ── */
     const hoverForceActive = cursorFieldRef.current.enabled && mouseRef.current.inside && !mouseRef.current.isRotating;
@@ -1470,69 +1757,16 @@ export function useParticleEngine({canvasRef}:EngineOptions){
 
     /* ── Render ───────────────────────────────────────────────────────── */
     const{ctx:oc,buf}=off;
-    oc.fillStyle=`rgba(2,5,9,${Math.max(0.03, 1-store.trailDecay)})`;
+    oc.fillStyle=`rgba(0,0,0,${Math.max(0.045, 1-store.trailDecay)})`;
     oc.fillRect(0,0,W,H);
-
-    let gradients = gradientCacheRef.current;
-    if(!gradients || gradients.w !== W || gradients.h !== H){
-      const atmosphere = oc.createRadialGradient(W * 0.5, H * 0.45, Math.min(W, H) * 0.08, W * 0.5, H * 0.5, Math.min(W, H) * 0.78);
-      atmosphere.addColorStop(0, "rgba(0,255,210,0.05)");
-      atmosphere.addColorStop(0.35, "rgba(0,180,255,0.03)");
-      atmosphere.addColorStop(0.7, "rgba(7,29,52,0.02)");
-      atmosphere.addColorStop(1, "rgba(0,0,0,0)");
-
-      const grade = oc.createLinearGradient(0, 0, 0, H);
-      grade.addColorStop(0, "rgba(0,20,35,0.08)");
-      grade.addColorStop(1, "rgba(0,4,10,0.18)");
-
-      const vignette = oc.createRadialGradient(W * 0.5, H * 0.5, Math.min(W, H) * 0.32, W * 0.5, H * 0.5, Math.min(W, H) * 0.72);
-      vignette.addColorStop(0, "rgba(0,0,0,0)");
-      vignette.addColorStop(1, "rgba(0,0,0,0.62)");
-
-      gradients = { atmosphere, grade, vignette, w: W, h: H };
-      gradientCacheRef.current = gradients;
-    }
-
-    oc.fillStyle = gradients.atmosphere;
-    oc.fillRect(0, 0, W, H);
-
-    const ambient = ambientRef.current;
-    if (ambient) {
-      const ambientStep = p.count > 140000 ? 3 : p.count > 90000 ? 2 : 1;
-      oc.save();
-      oc.globalCompositeOperation = "lighter";
-      for (let i = 0; i < ambient.count; i += ambientStep) {
-        let x = ambient.x[i] ?? 0;
-        let y = ambient.y[i] ?? 0;
-        const driftX = (ambient.vx[i] ?? 0) + Math.sin(simTimeRef.current * 0.1 + i * 0.021) * 0.005;
-        const driftY = (ambient.vy[i] ?? 0) + Math.cos(simTimeRef.current * 0.09 + i * 0.017) * 0.005;
-        x += driftX * DT * 0.35;
-        y += driftY * DT * 0.35;
-        if (x < -6) x = W + 6;
-        else if (x > W + 6) x = -6;
-        if (y < -6) y = H + 6;
-        else if (y > H + 6) y = -6;
-        ambient.x[i] = x;
-        ambient.y[i] = y;
-
-        const hue = ambient.hue[i] ?? 0;
-        const r = Math.round(24 + hue * 60);
-        const g = Math.round(88 + hue * 140);
-        const b = Math.round(158 + hue * 95);
-        const a = (ambient.alpha[i] ?? 0.1) * (0.6 + 0.4 * Math.sin(simTimeRef.current * 0.4 + i * 0.013));
-        const s = ambient.size[i] ?? 1;
-
-        oc.fillStyle = `rgba(${r},${g},${b},${a * 0.35})`;
-        oc.beginPath();
-        oc.arc(x, y, s, 0, Math.PI * 2);
-        oc.fill();
-      }
-      oc.restore();
-    }
 
     const sz=store.particleSize;
     const tuning=renderTuningRef.current;
     const bm=store.bloomIntensity*tuning.glow;
+    const fastRender = p.count > 140000 || perf.smoothedFps < 44;
+    const particleStep = fastRender ? 2 : 1;
+    const particlePhase = perf.frame % particleStep;
+    const bloomGain = fastRender ? Math.min(0.22, bm * 0.38) : bm;
     const useImgColor=imgModeRef.current&&!!imgColorsRef.current;
     const imgC=imgColorsRef.current;
     const customPalette=customPaletteRef.current;
@@ -1582,7 +1816,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     pc.save();
     pc.globalCompositeOperation = particleComposite;
 
-    for(let i=0;i<p.count;i++){
+    for(let i=particlePhase;i<p.count;i+=particleStep){
       const x=p.px[i]??0,y=p.py[i]??0;
       if(x<-8||x>W+8||y<-8||y>H+8) continue;
 
@@ -1603,7 +1837,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
         ? Math.max(0.42,(p.psize[i]??1)*0.9*sz*0.72)
         : sz*(0.34 + (p.psize[i] ?? 1) * 0.95 + mass * 0.18 + Math.min(0.7, speed * 0.08))*shapeSizeFactor;
 
-      const drawAlpha = clamp(a, 0, 1);
+      const drawAlpha = clamp(a * (particleStep > 1 ? 1.28 : 1), 0, 1);
       if (drawAlpha <= 0.01) continue;
       const alphaByte = Math.round(drawAlpha * 255);
       const styleKey = (r << 24) | (g << 16) | (b << 8) | alphaByte;
@@ -1614,8 +1848,8 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       }
       pc.fillStyle = style;
 
-      if(s <= 1.1){
-        const q = Math.max(0.5, s);
+      if(fastRender || s <= 1.1){
+        const q = Math.max(0.7, s * (fastRender ? 1.08 : 1));
         pc.fillRect(x - q * 0.5, y - q * 0.5, q, q);
       }else{
         pc.beginPath();
@@ -1632,31 +1866,62 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     oc.restore();
 
     // Screen-space bloom is far cheaper than per-particle radial gradients.
-    if(!imgModeRef.current && bm>0.01){
+    if(!imgModeRef.current && bloomGain>0.01){
       blurCtx.clearRect(0,0,W,H);
       blurCtx.drawImage(particleBuf,0,0,W,H);
 
-      const blurBase = 0.75 + bm * 2.6;
+      const blurBase = fastRender ? 0.58 + bloomGain * 1.8 : 0.75 + bloomGain * 2.6;
       oc.save();
       oc.globalCompositeOperation = "lighter";
       oc.filter = `blur(${blurBase.toFixed(2)}px)`;
-      oc.globalAlpha = clamp(0.14 + bm * 0.34, 0, 0.82);
+      oc.globalAlpha = clamp(0.1 + bloomGain * 0.26, 0, 0.72);
       oc.drawImage(blurBuf,0,0,W,H);
-      if(bm>0.55){
+      if(!fastRender && bloomGain>0.55){
         oc.filter = `blur(${(blurBase * 1.9).toFixed(2)}px)`;
-        oc.globalAlpha = clamp(0.05 + bm * 0.16, 0, 0.42);
+        oc.globalAlpha = clamp(0.05 + bloomGain * 0.16, 0, 0.42);
         oc.drawImage(blurBuf,0,0,W,H);
       }
       oc.restore();
     }
 
-    oc.fillStyle = gradients.grade;
-    oc.fillRect(0, 0, W, H);
-
-    oc.fillStyle = gradients.vignette;
-    oc.fillRect(0, 0, W, H);
-
     // Overlays
+    if(store.activePreset==="solar"){
+      const cx=W/2,cy=H/2;
+      const scaleY=0.78;
+      const planets=[
+        {orbit:58,size:2.3,speed:1.68,color:"rgba(215,210,196,0.95)",phase:0.2},
+        {orbit:86,size:3.1,speed:1.24,color:"rgba(220,175,128,0.95)",phase:1.4},
+        {orbit:118,size:3.4,speed:1.0,color:"rgba(120,186,255,0.95)",phase:2.2},
+        {orbit:152,size:2.8,speed:0.82,color:"rgba(225,133,112,0.95)",phase:0.9},
+        {orbit:192,size:6.8,speed:0.44,color:"rgba(228,188,127,0.95)",phase:2.8},
+        {orbit:236,size:6.0,speed:0.35,color:"rgba(235,214,163,0.9)",phase:4.1},
+        {orbit:278,size:4.8,speed:0.26,color:"rgba(133,206,224,0.92)",phase:3.2},
+        {orbit:314,size:4.6,speed:0.21,color:"rgba(109,146,255,0.9)",phase:5.1},
+      ];
+
+      oc.save();
+      for(let i=0;i<planets.length;i++){
+        const pl=planets[i]!;
+        oc.beginPath();
+        oc.ellipse(cx,cy,pl.orbit,pl.orbit*scaleY,0,0,Math.PI*2);
+        oc.strokeStyle="rgba(120,150,200,0.14)";
+        oc.lineWidth=1;
+        oc.stroke();
+        const a=simTimeRef.current*0.62*pl.speed+pl.phase;
+        const px=cx+Math.cos(a)*pl.orbit;
+        const py=cy+Math.sin(a)*pl.orbit*scaleY;
+        oc.beginPath();
+        oc.fillStyle=pl.color;
+        oc.arc(px,py,pl.size,0,Math.PI*2);
+        oc.fill();
+      }
+      oc.beginPath();
+      oc.fillStyle="rgba(255,208,112,0.95)";
+      oc.arc(cx,cy,11,0,Math.PI*2);
+      oc.fill();
+      oc.restore();
+    }
+
     if(store.activePreset==="doubleslit"){
       oc.strokeStyle="rgba(143,245,255,0.1)";oc.lineWidth=3;
       oc.strokeRect(W/2-5,0,10,H/2-40);oc.strokeRect(W/2-5,H/2+40,10,H/2-40);

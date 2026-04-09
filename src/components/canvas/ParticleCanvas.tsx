@@ -26,7 +26,10 @@ export default function ParticleCanvas() {
       if (e.target instanceof HTMLInputElement) return;
       if (e.key === "Shift") mouseRef.current.shift = true;
       if (e.key === " ") { e.preventDefault(); explode(); }
-      if (e.key === "r" || e.key === "R") reinit(store.activePreset ?? "galaxy");
+      if (e.key === "r" || e.key === "R") {
+        if (store.activePreset) reinit(store.activePreset);
+        else window.dispatchEvent(new CustomEvent("qf:loadShape", { detail: "sphere" }));
+      }
       if (e.key === "p" || e.key === "P") store.setRunning(!store.isRunning);
       if (e.key === "s" || e.key === "S") store.toggleSidebar();
       if (e.key === "e" || e.key === "E") store.toggleEquation();

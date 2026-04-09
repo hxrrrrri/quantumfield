@@ -27,6 +27,7 @@ const PRESETS: PresetMeta[] = [
   { id: "bec",         icon: "❄",  label: "BEC Condensate", physics: "Quantum",     equation: "E=ℏω(n+½)",        particles: "20k" },
   { id: "supernova",   icon: "💫", label: "Supernova",      physics: "Classical",   equation: "L=4πR²σT⁴",        particles: "40k" },
   { id: "anntraining", icon: "🧠", label: "Neural Training", physics: "ML",         equation: "σ(z)=1/(1+e⁻ᶻ)",  particles: "15k" },
+  { id: "cnn",         icon: "🧩", label: "CNN Filters",     physics: "ML",          equation: "conv(x,w)+b",      particles: "14k" },
   { id: "transformer", icon: "🔀", label: "Transformer",    physics: "ML",          equation: "Attn=softmax(QKᵀ/√d)V", particles: "8k" },
   { id: "gan",         icon: "⚔",  label: "GAN Adversarial",physics: "ML",          equation: "min_G max_D V(D,G)", particles: "12k" },
   { id: "dna",         icon: "🧬", label: "DNA Helix",      physics: "Classical",   equation: "3.4Å/bp 10.5bp/turn", particles: "8k" },
@@ -52,6 +53,7 @@ export default function PresetGallery() {
           role="listitem"
           onClick={() => {
             store.setActivePreset(p.id);
+            store.setANNPanelOpen(true);
             window.dispatchEvent(new CustomEvent("qf:loadPreset", { detail: p.id }));
           }}
           style={{

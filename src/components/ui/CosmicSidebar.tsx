@@ -4,13 +4,16 @@ import { useSimulatorStore } from "@/store/simulatorStore";
 import type { ColormapName, PresetName } from "@/types";
 
 const SHAPES=[
-  {id:"galaxy",label:"Galaxy"},{id:"sphere",label:"Sphere"},
+  {id:"sphere",label:"Sphere"},{id:"cube",label:"Cube"},
+  {id:"helix",label:"Helix"},{id:"donut",label:"Donut"},
   {id:"cylinder",label:"Cylinder"},{id:"torus",label:"Torus"},
-  {id:"cube",label:"Cube"},{id:"dna",label:"DNA"},
-  {id:"klein",label:"Klein"},{id:"mobius",label:"Möbius"},
-  {id:"trefoil",label:"Trefoil"},{id:"heart",label:"Heart"},
-  {id:"octahed",label:"Octa"},{id:"wave",label:"Wave"},
-  {id:"spiral",label:"Spiral"},{id:"text",label:"Text→"},
+  {id:"dna",label:"DNA"},{id:"lissajous",label:"Lissa"},
+  {id:"flower",label:"Flower"},{id:"crystal",label:"Crystal"},
+  {id:"mobius",label:"Mobius"},{id:"klein",label:"Klein"},
+  {id:"trefoil",label:"Trefoil"},{id:"octahed",label:"Octa"},
+  {id:"wave",label:"Wave"},{id:"spiral",label:"Spiral"},
+  {id:"heart",label:"Heart"},{id:"galaxy",label:"Galaxy"},
+  {id:"text",label:"Text→"},
   {id:"image",label:"Img→"},
 ] as const;
 
@@ -31,14 +34,22 @@ const PRESETS:[PresetName,string,string,string][]=[
   ["galaxy","◎","Galaxy","F=Gm₁m₂/r²"],
   ["bigbang","◉","Big Bang","V=H₀·r"],
   ["blackhole","●","Black Hole","rs=2GM/c²"],
+  ["supernova","✺","Supernova","L=4πR²σT⁴"],
   ["plasma","⌀","Plasma Storm","F=q(E+v×B)"],
   ["doubleslit","◈","Double Slit","P=|ψ₁+ψ₂|²"],
+  ["electroncloud","⚛","Electron Cloud","ψnlm = Rnl·Ylm"],
+  ["wavecollapse","∿","Wave Collapse","ΔxΔp≥ℏ/2"],
   ["solar","⊙","Solar System","T²∝a³"],
   ["bec","◻","BEC","E=ℏω(n+½)"],
   ["darkmatter","✦","Dark Matter","Ω≈0.27"],
+  ["strings","≈","Strings","S=−∫d²σ·∂X²/2α′"],
   ["dna","⌇","DNA Helix","3.4Å/bp"],
   ["vortex","⟳","Fluid Vortex","∇×v=ω"],
   ["anntraining","⊛","Neural Net","σ(z)=1/(1+e⁻ᶻ)"],
+  ["cnn","▦","CNN","conv(x,w)+b"],
+  ["transformer","⇄","Transformer","Attn=softmax(QKᵀ/√d)V"],
+  ["gan","⚖","GAN","min_G max_D V(D,G)"],
+  ["portrait","◉","Portrait","Poisson sampling"],
   ["tunneling","⇝","Q.Tunneling","T≈e^{-2κa}"],
 ];
 
@@ -52,6 +63,101 @@ const COLOR_PRESETS=[
   {id:"arc",label:"Arc",start:"#49c8ff",end:"#ff4784"},
   {id:"mint",label:"Mint",start:"#98ffe0",end:"#17d9ff"},
 ] as const;
+
+interface VisualStylePreset {
+  id: string;
+  label: string;
+  gradient: string;
+  colormap: ColormapName;
+  brightness: number;
+  glow: number;
+  bloom: number;
+  trailDecay: number;
+  particleSize: number;
+  palette?: { start: string; end: string };
+}
+
+const VISUAL_STYLES: VisualStylePreset[] = [
+  {
+    id: "spark",
+    label: "Spark",
+    gradient: "linear-gradient(135deg,#00d4ff,#53ffc7)",
+    colormap: "neon",
+    brightness: 1.08,
+    glow: 1.16,
+    bloom: 0.26,
+    trailDecay: 0.84,
+    particleSize: 1.9,
+  },
+  {
+    id: "plasma",
+    label: "Plasma",
+    gradient: "linear-gradient(135deg,#ff7a00,#ff2f92)",
+    colormap: "plasma",
+    brightness: 1.2,
+    glow: 1.34,
+    bloom: 0.48,
+    trailDecay: 0.82,
+    particleSize: 2.0,
+  },
+  {
+    id: "ink",
+    label: "Ink",
+    gradient: "linear-gradient(135deg,#1a1f2f,#5f6b7d)",
+    colormap: "inferno",
+    brightness: 0.72,
+    glow: 0.3,
+    bloom: 0.04,
+    trailDecay: 0.95,
+    particleSize: 1.2,
+  },
+  {
+    id: "paint",
+    label: "Paint",
+    gradient: "linear-gradient(135deg,#ff0050,#ffc800,#00d96c)",
+    colormap: "rainbow",
+    brightness: 1.14,
+    glow: 0.92,
+    bloom: 0.18,
+    trailDecay: 0.88,
+    particleSize: 2.15,
+  },
+  {
+    id: "steel",
+    label: "Steel",
+    gradient: "linear-gradient(135deg,#8a98a8,#f3f6ff)",
+    colormap: "cyan",
+    brightness: 0.92,
+    glow: 0.54,
+    bloom: 0.14,
+    trailDecay: 0.91,
+    particleSize: 1.55,
+    palette: { start: "#8a98a8", end: "#f3f6ff" },
+  },
+  {
+    id: "glass",
+    label: "Glass",
+    gradient: "linear-gradient(135deg,#7ce4ff,#d8f1ff)",
+    colormap: "aurora",
+    brightness: 1,
+    glow: 0.62,
+    bloom: 0.24,
+    trailDecay: 0.9,
+    particleSize: 1.45,
+    palette: { start: "#7ce4ff", end: "#d8f1ff" },
+  },
+  {
+    id: "vector",
+    label: "Vector",
+    gradient: "linear-gradient(135deg,#2d7dff,#44f59f)",
+    colormap: "turbo",
+    brightness: 0.98,
+    glow: 0.2,
+    bloom: 0.02,
+    trailDecay: 0.97,
+    particleSize: 1.08,
+  },
+];
 
 function hexToRgb(hex:string):[number,number,number]{
   const raw=hex.replace("#","");
@@ -91,7 +197,8 @@ function Slider({label,value,min,max,step,unit="",format,onChange}:{label:string
 export default function CosmicSidebar(){
   const store=useSimulatorStore();
   const[textInput,setTextInput]=useState("QUANTUM");
-  const[activeShape,setActiveShape]=useState("galaxy");
+  const[activeShape,setActiveShape]=useState("sphere");
+  const[activeStyle,setActiveStyle]=useState("spark");
   const[forceMode,setForceModeLocal]=useState<"attract"|"repel"|"orbit">("attract");
   const[morphSpeed,setMorphSpeed]=useState(0.2);
   const[imgPreview,setImgPreview]=useState<string|null>(null);
@@ -99,8 +206,8 @@ export default function CosmicSidebar(){
   const[customPaletteEnabled,setCustomPaletteEnabled]=useState(false);
   const[customStart,setCustomStart]=useState("#00d4ff");
   const[customEnd,setCustomEnd]=useState("#ff548a");
-  const[colorBrightness,setColorBrightness]=useState(1);
-  const[glowGain,setGlowGain]=useState(1);
+  const[colorBrightness,setColorBrightness]=useState(1.08);
+  const[glowGain,setGlowGain]=useState(1.16);
   const[imageExactMode,setImageExactMode]=useState(true);
   const[cursorFieldEnabled,setCursorFieldEnabled]=useState(false);
   const[cursorFieldStrength,setCursorFieldStrength]=useState(0.85);
@@ -145,6 +252,30 @@ export default function CosmicSidebar(){
     setActiveShape(shape);
     window.dispatchEvent(new CustomEvent("qf:loadShape",{detail:shape}));
   };
+
+  const applyVisualStyle=(styleId:string)=>{
+    const style=VISUAL_STYLES.find((s)=>s.id===styleId);
+    if(!style) return;
+    setActiveStyle(style.id);
+    setColorBrightness(style.brightness);
+    setGlowGain(style.glow);
+    store.setBloom(style.bloom);
+    store.setTrailDecay(style.trailDecay);
+    store.setParticleSize(style.particleSize);
+    store.setColormap(style.colormap);
+    if(style.palette){
+      setCustomStart(style.palette.start);
+      setCustomEnd(style.palette.end);
+      setCustomPaletteEnabled(true);
+    }else{
+      setCustomPaletteEnabled(false);
+    }
+  };
+
+  useEffect(()=>{
+    applyVisualStyle("spark");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   const handleForce=(m:"attract"|"repel"|"orbit")=>{
     setForceModeLocal(m);
@@ -244,8 +375,40 @@ export default function CosmicSidebar(){
         <Slider label="Gravity G" value={store.gravityG} min={0} max={5} step={0.1} onChange={store.setGravityG}/>
       </Section>
 
-      <Section title="Shapes & 3D Morphing">
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,paddingBottom:8}}>
+      <Section title="Visual Styles">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:6}}>
+          {VISUAL_STYLES.map((style)=>(
+            <button
+              key={style.id}
+              onClick={()=>applyVisualStyle(style.id)}
+              style={{
+                borderRadius:3,
+                padding:"5px 2px",
+                border:`1px solid ${activeStyle===style.id?"rgba(143,245,255,0.55)":"rgba(143,245,255,0.16)"}`,
+                background:style.gradient,
+                color:"rgba(6,10,18,0.9)",
+                fontFamily:"var(--font-space-grotesk),'Space Grotesk',sans-serif",
+                fontSize:8,
+                fontWeight:700,
+                letterSpacing:"0.08em",
+                textTransform:"uppercase",
+                cursor:"pointer",
+                boxShadow:activeStyle===style.id?"0 0 14px rgba(143,245,255,0.25)":"none",
+              }}
+              aria-pressed={activeStyle===style.id}
+              aria-label={`Apply ${style.label} visual style`}
+            >
+              {style.label}
+            </button>
+          ))}
+        </div>
+        <div style={{fontFamily:"monospace",fontSize:8,color:"rgba(143,245,255,0.4)",lineHeight:1.4}}>
+          Style profiles tune bloom, trails, color response, and particle scale for distinct looks without changing simulation physics.
+        </div>
+      </Section>
+
+      <Section title="Community / Local Shapes">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4,paddingBottom:8}}>
           {SHAPES.map(s=>{
             const isSpecial=s.id==="text"||s.id==="image";
             const isActive=activeShape===s.id;
@@ -259,7 +422,7 @@ export default function CosmicSidebar(){
                     setActiveShape("text");
                   } else handleShape(s.id);
                 }}
-                style={{background:isActive?"rgba(172,137,255,0.12)":isSpecial?"rgba(255,201,101,0.06)":"rgba(18,19,25,0.8)",border:`1px solid ${isActive?"rgba(172,137,255,0.5)":isSpecial?"rgba(255,201,101,0.2)":"rgba(143,245,255,0.08)"}`,color:isActive?"var(--secondary)":isSpecial?"var(--tertiary)":"var(--text-dim)",fontFamily:"var(--font-space-grotesk),'Space Grotesk',sans-serif",fontSize:8,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase",padding:"6px 2px",borderRadius:3,cursor:"pointer",textAlign:"center",transition:"all 0.12s"}}
+                style={{background:isActive?"rgba(172,137,255,0.12)":isSpecial?"rgba(255,201,101,0.06)":"rgba(18,19,25,0.8)",border:`1px solid ${isActive?"rgba(172,137,255,0.5)":isSpecial?"rgba(255,201,101,0.2)":"rgba(143,245,255,0.08)"}`,color:isActive?"var(--secondary)":isSpecial?"var(--tertiary)":"var(--text-dim)",fontFamily:"var(--font-space-grotesk),'Space Grotesk',sans-serif",fontSize:7,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase",padding:"6px 2px",borderRadius:3,cursor:"pointer",textAlign:"center",transition:"all 0.12s"}}
                 aria-pressed={isActive} aria-label={`Load ${s.label} shape`}
               >
                 {s.label}
@@ -324,7 +487,7 @@ export default function CosmicSidebar(){
           Exact mode maps particles directly to image pixels at processed resolution for photo-faithful reconstruction.
         </div>
         {activeShape==="image"&&(
-          <button onClick={()=>{setActiveShape("galaxy");setImgPreview(prev=>{if(prev)URL.revokeObjectURL(prev);return null;});window.dispatchEvent(new CustomEvent("qf:loadShape",{detail:"galaxy"}));}} style={{width:"100%",padding:"5px",background:"rgba(255,107,53,0.07)",border:"1px solid rgba(255,107,53,0.25)",color:"#ff6b35",fontFamily:"monospace",fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",borderRadius:3,cursor:"pointer",transition:"all 0.15s"}}>
+          <button onClick={()=>{setActiveShape("sphere");setImgPreview(prev=>{if(prev)URL.revokeObjectURL(prev);return null;});window.dispatchEvent(new CustomEvent("qf:loadShape",{detail:"sphere"}));}} style={{width:"100%",padding:"5px",background:"rgba(255,107,53,0.07)",border:"1px solid rgba(255,107,53,0.25)",color:"#ff6b35",fontFamily:"monospace",fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",borderRadius:3,cursor:"pointer",transition:"all 0.15s"}}>
             ✕ Clear Image
           </button>
         )}
@@ -439,7 +602,7 @@ export default function CosmicSidebar(){
       <Section title="Scene Presets">
         <div style={{display:"flex",flexDirection:"column",gap:3}}>
           {PRESETS.map(([id,icon,label,eq])=>(
-            <div key={id} onClick={()=>{store.setActivePreset(id);window.dispatchEvent(new CustomEvent("qf:loadPreset",{detail:id}));setActiveShape("galaxy");}} role="button" tabIndex={0} onKeyDown={e=>{if(e.key==="Enter"){store.setActivePreset(id);window.dispatchEvent(new CustomEvent("qf:loadPreset",{detail:id}));}}} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:4,cursor:"pointer",border:`1px solid ${store.activePreset===id?"rgba(143,245,255,0.15)":"transparent"}`,background:store.activePreset===id?"rgba(143,245,255,0.04)":"transparent",transition:"all 0.12s"}} aria-pressed={store.activePreset===id}>
+            <div key={id} onClick={()=>{store.setActivePreset(id);store.setANNPanelOpen(true);window.dispatchEvent(new CustomEvent("qf:loadPreset",{detail:id}));setActiveShape("galaxy");}} role="button" tabIndex={0} onKeyDown={e=>{if(e.key==="Enter"){store.setActivePreset(id);store.setANNPanelOpen(true);window.dispatchEvent(new CustomEvent("qf:loadPreset",{detail:id}));}}} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:4,cursor:"pointer",border:`1px solid ${store.activePreset===id?"rgba(143,245,255,0.15)":"transparent"}`,background:store.activePreset===id?"rgba(143,245,255,0.04)":"transparent",transition:"all 0.12s"}} aria-pressed={store.activePreset===id}>
               <span style={{fontSize:11,width:14,textAlign:"center",color:store.activePreset===id?"var(--primary)":"var(--text-dim)"}}>{icon}</span>
               <span style={{fontFamily:"var(--font-space-grotesk),'Space Grotesk',sans-serif",fontSize:9,fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase",color:store.activePreset===id?"var(--primary)":"var(--text-muted)",flex:1}}>{label}</span>
               <span style={{fontFamily:"monospace",fontSize:8,color:"var(--text-dim)"}}>{eq}</span>

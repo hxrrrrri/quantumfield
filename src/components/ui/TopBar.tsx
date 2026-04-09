@@ -117,9 +117,9 @@ export default function TopBar() {
             transition: "all 0.2s",
           }}
           aria-pressed={store.annPanelOpen}
-          aria-label="Toggle ANN visualization panel"
+          aria-label="Toggle preset insights panel"
         >
-          ANN {store.annPanelOpen ? "ON" : "OFF"}
+          INSIGHTS {store.annPanelOpen ? "ON" : "OFF"}
         </button>
         <button
           onClick={() => {

@@ -7,7 +7,7 @@ const ParticleCanvas = dynamic(() => import("@/components/canvas/ParticleCanvas"
 const CosmicSidebar = dynamic(() => import("@/components/ui/CosmicSidebar"),       { ssr: false });
 const TopBar        = dynamic(() => import("@/components/ui/TopBar"),               { ssr: false });
 const InfoOverlay   = dynamic(() => import("@/components/ui/InfoOverlay"),          { ssr: false });
-const ANNVisualizer = dynamic(() => import("@/components/ml/ANNVisualizer"),        { ssr: false });
+const PresetInsightPanel = dynamic(() => import("@/components/ui/PresetInsightPanel"), { ssr: false });
 
 function LoadingScreen() {
   return (
@@ -29,37 +29,21 @@ function LoadingScreen() {
 }
 
 export default function SimulatorPage() {
-  const annPanelOpen = useSimulatorStore((s) => s.annPanelOpen);
+  const insightPanelOpen = useSimulatorStore((s) => s.annPanelOpen);
   const sidebarOpen = useSimulatorStore((s) => s.sidebarOpen);
 
   return (
     <main
-      style={{position:"relative",width:"100vw",height:"100vh",overflow:"hidden",background:"#0d0e13"}}
+      style={{position:"relative",width:"100vw",height:"100vh",overflow:"hidden",background:"#000"}}
       aria-label="QuantumField Celestial Observer"
     >
-      {/* Pure dark radial background — NO scanning line, NO white elements */}
-      <div aria-hidden="true" style={{
-        position:"absolute",inset:0,zIndex:0,pointerEvents:"none",
-        background:"radial-gradient(ellipse at 50% 50%, rgba(172,137,255,0.05) 0%, #0d0e13 65%)",
-      }}/>
-
-      {/* Volumetric grid floor — subtle only */}
-      <div aria-hidden="true" style={{
-        position:"absolute",bottom:0,left:0,right:0,height:"35%",
-        zIndex:0,pointerEvents:"none",
-        backgroundImage:"linear-gradient(to right,rgba(143,245,255,0.025) 1px,transparent 1px),linear-gradient(to bottom,rgba(143,245,255,0.025) 1px,transparent 1px)",
-        backgroundSize:"40px 40px",
-        maskImage:"radial-gradient(ellipse 70% 60% at 50% 100%,#000 50%,transparent 100%)",
-        WebkitMaskImage:"radial-gradient(ellipse 70% 60% at 50% 100%,#000 50%,transparent 100%)",
-      }}/>
-
       <Suspense fallback={<LoadingScreen/>}>
         <ParticleCanvas/>
         <TopBar/>
         <CosmicSidebar/>
         <InfoOverlay/>
 
-        {annPanelOpen && (
+        {insightPanelOpen && (
           <section
             style={{
               position: "absolute",
@@ -89,7 +73,7 @@ export default function SimulatorPage() {
                 overflow: "hidden",
               }}
             >
-              <ANNVisualizer />
+              <PresetInsightPanel />
             </div>
           </section>
         )}

@@ -50,7 +50,7 @@ const DEFAULT_STATE: SimulatorState = {
   bloomIntensity: 0,
   trailDecay: 0.85,
   particleSize: 1.8,
-  activePreset: "galaxy",
+  activePreset: null,
   isRunning: true,
   fps: 0,
   frameTime: 0,
