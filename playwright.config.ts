@@ -1,5 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const projects = [
+  { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+  ...(process.env["CI"] ? [] : [{ name: "firefox", use: { ...devices["Desktop Firefox"] } }]),
+];
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: true,
@@ -11,10 +16,7 @@ export default defineConfig({
     baseURL: "http://localhost:3000",
     trace: "on-first-retry",
   },
-  projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "firefox",  use: { ...devices["Desktop Firefox"] } },
-  ],
+  projects,
   webServer: {
     command: "bun run build && bun run start",
     url: "http://localhost:3000",
