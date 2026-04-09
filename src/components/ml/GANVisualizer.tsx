@@ -46,7 +46,7 @@ export default function GANVisualizer({ width = 600, height = 280 }: GANVisualiz
     // Generator Main Core
     ctx.beginPath(); ctx.arc(genX + 45, cy, 28, 0, Math.PI * 2);
     const pulse = Math.sin(t * 0.003) * 0.3 + 0.7;
-    let gGrad = ctx.createRadialGradient(genX+45, cy, 0, genX+45, cy, 28);
+    const gGrad = ctx.createRadialGradient(genX+45, cy, 0, genX+45, cy, 28);
     gGrad.addColorStop(0, `rgba(160,80,255,${pulse})`);
     gGrad.addColorStop(1, `rgba(60,20,120,0)`);
     ctx.fillStyle = gGrad; ctx.fill();
@@ -114,7 +114,7 @@ export default function GANVisualizer({ width = 600, height = 280 }: GANVisualiz
     // Discriminator Core
     ctx.beginPath(); ctx.arc(discX - 15, cy, 28, 0, Math.PI * 2);
     const dpulse = Math.sin(t * 0.004 + 1) * 0.3 + 0.7;
-    let dGrad = ctx.createRadialGradient(discX-15, cy, 0, discX-15, cy, 28);
+    const dGrad = ctx.createRadialGradient(discX-15, cy, 0, discX-15, cy, 28);
     dGrad.addColorStop(0, `rgba(0,200,255,${dpulse})`);
     dGrad.addColorStop(1, `rgba(0,50,100,0)`);
     ctx.fillStyle = dGrad; ctx.fill();

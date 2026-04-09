@@ -3,7 +3,6 @@
  * Manages Structure-of-Arrays buffers and lifecycle.
  */
 
-import type { PhysicsMode } from "@/types";
 import { SpatialHash } from "./SpatialHash";
 
 export interface ParticleSystemOptions {
@@ -82,8 +81,8 @@ export class ParticleSystem {
       if (!this.palive[i]) continue;
       this.pvx[i] = ((this.pvx[i] ?? 0) + (this.pax[i] ?? 0) * dt) * damping;
       this.pvy[i] = ((this.pvy[i] ?? 0) + (this.pay[i] ?? 0) * dt) * damping;
-      this.px[i] = (this.px[i] ?? 0) + this.pvx[i] * dt;
-      this.py[i] = (this.py[i] ?? 0) + this.pvy[i] * dt;
+      this.px[i] = (this.px[i] ?? 0) + (this.pvx[i] ?? 0) * dt;
+      this.py[i] = (this.py[i] ?? 0) + (this.pvy[i] ?? 0) * dt;
     }
   }
 

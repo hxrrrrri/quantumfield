@@ -5,7 +5,6 @@
 
 import type { PhysicsWorkerInput, PhysicsWorkerOutput } from "@/types";
 
-// eslint-disable-next-line no-restricted-globals
 const ctx = self as unknown as Worker;
 
 function applyGravitySimple(
@@ -57,7 +56,6 @@ function applyGravitySimple(
     // Central attractor
     const dx = cx - (px[i] ?? 0), dy = cy - (py[i] ?? 0);
     const r2 = dx * dx + dy * dy + 400;
-    const r = Math.sqrt(r2);
     ax += G * 0.4 * dx / r2;
     ay += G * 0.4 * dy / r2;
 

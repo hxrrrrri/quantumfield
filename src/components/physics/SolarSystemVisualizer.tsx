@@ -99,7 +99,7 @@ export default function SolarSystemVisualizer({ width = 920, height = 360 }: Sol
     // Sun with massive bloom
     const sunPulse = Math.sin(t * 1.5) * 4;
     const sunGlowR = 40 + sunPulse;
-    let g = ctx.createRadialGradient(cx, cy, 0, cx, cy, sunGlowR);
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, sunGlowR);
     g.addColorStop(0, "rgba(255, 255, 255, 1)");
     g.addColorStop(0.1, "rgba(255, 230, 150, 0.95)");
     g.addColorStop(0.3, "rgba(255, 150, 50, 0.6)");
@@ -146,7 +146,7 @@ export default function SolarSystemVisualizer({ width = 920, height = 360 }: Sol
       }
 
       // Planet body with spherical shading
-      let ps = ctx.createRadialGradient(px - p.radius*0.3, py - p.radius*0.3, 0, px, py, p.radius);
+      const ps = ctx.createRadialGradient(px - p.radius*0.3, py - p.radius*0.3, 0, px, py, p.radius);
       ps.addColorStop(0, "rgba(255,255,255,0.7)"); // Specular
       ps.addColorStop(0.2, p.color);
       ps.addColorStop(1, "rgba(0,0,0,0.8)"); // Shadow

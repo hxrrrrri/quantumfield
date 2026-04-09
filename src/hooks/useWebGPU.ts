@@ -62,7 +62,7 @@ export function useWebGPU(): WebGPUState {
           },
         });
 
-        device.addEventListener("uncapturederror", (e: any) => {
+        device.addEventListener("uncapturederror", (e: Event) => {
           console.error("[WebGPU] Uncaptured error:", e);
         });
 

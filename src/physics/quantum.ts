@@ -21,9 +21,6 @@ interface Complex {
   im: number;
 }
 
-function cAdd(a: Complex, b: Complex): Complex {
-  return { re: a.re + b.re, im: a.im + b.im };
-}
 function cMul(a: Complex, b: Complex): Complex {
   return { re: a.re * b.re - a.im * b.im, im: a.re * b.im + a.im * b.re };
 }

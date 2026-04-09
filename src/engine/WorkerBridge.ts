@@ -3,8 +3,6 @@
  * Manages worker lifecycle, SharedArrayBuffer, and message routing.
  */
 
-import type { PhysicsMode } from "@/types";
-
 interface WorkerBridgeOptions {
   onStep?: (ke: number, frameTime: number) => void;
   onError?: (err: ErrorEvent) => void;

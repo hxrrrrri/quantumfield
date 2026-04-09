@@ -9,6 +9,16 @@ import type { GestureState } from "@/types";
 
 const GESTURE_DEBOUNCE_MS = 200;
 
+interface MediaPipeLandmark {
+  x: number;
+  y: number;
+  z?: number;
+}
+
+interface MediaPipeResults {
+  multiHandLandmarks?: MediaPipeLandmark[][];
+}
+
 function detectGesture(
   landmarks: number[][]
 ): { gesture: string; confidence: number } {
@@ -20,7 +30,6 @@ function detectGesture(
   const ring = landmarks[16]!;
   const pinky = landmarks[20]!;
   const wrist = landmarks[0]!;
-  const palm = landmarks[9]!;
 
   // Fingertip y positions relative to wrist
   const tipY = [thumb, index, middle, ring, pinky].map((tip) => tip[1]! - wrist[1]!);
@@ -124,7 +133,7 @@ export function useGesture(): {
         minTrackingConfidence: 0.5,
       });
 
-      hands.onResults((results: any) => {
+      hands.onResults((results: MediaPipeResults) => {
         if (!results.multiHandLandmarks?.length) {
           setGestureState((s) => ({
             ...s,
@@ -136,7 +145,7 @@ export function useGesture(): {
         }
 
         const lm = results.multiHandLandmarks[0]!;
-        const flatLm = lm.map((p: any) => [p[0]!, p[1]!, p[2] ?? 0]);
+        const flatLm = lm.map((p) => [p.x, p.y, p.z ?? 0]);
         const palm = flatLm[9]!;
 
         const now = Date.now();

@@ -1,3 +1,5 @@
+/// <reference types="@webgpu/types" />
+
 /**
  * Global window augmentation for debug object.
  */
