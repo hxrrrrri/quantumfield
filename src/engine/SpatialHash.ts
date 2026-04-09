@@ -7,10 +7,10 @@ export class SpatialHash {
   private readonly cellSize: number;
   private readonly gridW: number;
   private readonly gridH: number;
-  private readonly cells: Int32Array;
   private readonly particleNext: Int32Array;
   private readonly cellHead: Int32Array;
-  private maxParticles: number;
+  private pxRef: Float32Array | null = null;
+  private pyRef: Float32Array | null = null;
 
   constructor(
     canvasW: number,
@@ -21,9 +21,7 @@ export class SpatialHash {
     this.cellSize = cellSize;
     this.gridW = Math.ceil(canvasW / cellSize) + 1;
     this.gridH = Math.ceil(canvasH / cellSize) + 1;
-    this.maxParticles = maxParticles;
 
-    this.cells = new Int32Array(this.gridW * this.gridH).fill(-1);
     this.cellHead = new Int32Array(this.gridW * this.gridH).fill(-1);
     this.particleNext = new Int32Array(maxParticles).fill(-1);
   }
@@ -37,6 +35,9 @@ export class SpatialHash {
 
   /** Rebuild hash from particle positions every frame */
   build(px: Float32Array, py: Float32Array, count: number): void {
+    this.pxRef = px;
+    this.pyRef = py;
+
     // Clear heads
     this.cellHead.fill(-1);
 
@@ -58,6 +59,10 @@ export class SpatialHash {
     radius: number,
     callback: (j: number, dx: number, dy: number, r2: number) => void
   ): void {
+    const px = this.pxRef;
+    const py = this.pyRef;
+    if (!px || !py) return;
+
     const r2Max = radius * radius;
     const cxMin = Math.floor((x - radius) / this.cellSize);
     const cxMax = Math.floor((x + radius) / this.cellSize);
@@ -70,8 +75,8 @@ export class SpatialHash {
         const cell = gy * this.gridW + gx;
         let j = this.cellHead[cell] ?? -1;
         while (j !== -1) {
-          const dx = (this.cells[j] ?? 0) - x;
-          const dy = (this.cells[j + 1] ?? 0) - y;
+          const dx = (px[j] ?? 0) - x;
+          const dy = (py[j] ?? 0) - y;
           const r2 = dx * dx + dy * dy;
           if (r2 <= r2Max) {
             callback(j, dx, dy, r2);

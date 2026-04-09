@@ -47,8 +47,8 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
-      - name: npm audit (fail on high/critical)
-        run: npx npm@latest audit --audit-level=high
+      - name: bun audit (fail on high/critical)
+        run: bun audit --audit-level=high
 
   build:
     name: Build
