@@ -47,6 +47,13 @@ interface AmbientField {
   count: number;
 }
 
+interface RenderLayers {
+  particleBuf: HTMLCanvasElement;
+  particleCtx: CanvasRenderingContext2D;
+  blurBuf: HTMLCanvasElement;
+  blurCtx: CanvasRenderingContext2D;
+}
+
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
@@ -97,6 +104,23 @@ function limitLuma(r:number, g:number, b:number, maxLuma = 226):[number,number,n
   const gg = clamp(Math.round(g * scale), 0, 255);
   const bb = clamp(Math.round(b * scale), 0, 255);
   return [rr, gg, bb];
+}
+
+function get2DContext(canvas: HTMLCanvasElement, alpha = true): CanvasRenderingContext2D {
+  const ctx = canvas.getContext("2d", { alpha, desynchronized: true }) ?? canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Canvas 2D context is not available");
+  }
+  return ctx;
+}
+
+function createScaledLayer(width: number, height: number, dpr: number, alpha = true): { buf: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
+  const buf = document.createElement("canvas");
+  buf.width = Math.max(1, Math.floor(width * dpr));
+  buf.height = Math.max(1, Math.floor(height * dpr));
+  const ctx = get2DContext(buf, alpha);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { buf, ctx };
 }
 
 /* ─── Particle arrays (SoA) ─────────────────────────────────────────────── */
@@ -748,10 +772,27 @@ const PRESET_INITS:Record<string,InitFn>={
 
 /* ─── Main hook ─────────────────────────────────────────────────────────── */
 export function useParticleEngine({canvasRef}:EngineOptions){
-  const store=useSimulatorStore();
+  const isRunning = useSimulatorStore((s) => s.isRunning);
+  const storeStateRef = useRef(useSimulatorStore.getState());
+  useEffect(() => {
+    return useSimulatorStore.subscribe((s) => {
+      storeStateRef.current = s;
+    });
+  }, []);
   const {renderMode}=useWebGPU();
   const pRef=useRef<Particles|null>(null);
   const offRef=useRef<{buf:HTMLCanvasElement;ctx:CanvasRenderingContext2D}|null>(null);
+  const layersRef=useRef<RenderLayers|null>(null);
+  const screenCtxRef=useRef<CanvasRenderingContext2D|null>(null);
+  const gradientCacheRef = useRef<{ atmosphere: CanvasGradient; grade: CanvasGradient; vignette: CanvasGradient; w: number; h: number } | null>(null);
+  const colorLutRef = useRef<{ key: string; table: Uint8Array } | null>(null);
+  const styleCacheRef = useRef<Map<number, string>>(new Map());
+  const gravityGridRef = useRef<{ cells: number; mass: Float32Array; sumX: Float32Array; sumY: Float32Array }>({
+    cells: 0,
+    mass: new Float32Array(0),
+    sumX: new Float32Array(0),
+    sumY: new Float32Array(0),
+  });
   const ambientRef = useRef<AmbientField | null>(null);
   const textTargetsRef=useRef<Float32Array|null>(null);
   const imgTargetsRef=useRef<{tx:Float32Array;ty:Float32Array}|null>(null);
@@ -788,7 +829,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   // image colormap override (per-particle RGB when using image mode)
   const imgColorsRef=useRef<{r:Uint8Array;g:Uint8Array;b:Uint8Array}|null>(null);
 
-  useEffect(()=>{store.setRenderMode(renderMode);},[renderMode]); // eslint-disable-line
+  useEffect(()=>{storeStateRef.current.setRenderMode(renderMode);},[renderMode]);
 
   function getWH(){const c=canvasRef.current;return{W:c?.offsetWidth??800,H:c?.offsetHeight??600};}
 
@@ -803,7 +844,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   function snapToShape(shape:string){
     const{W,H}=getWH();
     let p=pRef.current;
-    if(!p){p=alloc(store.particleCount);pRef.current=p;}
+    if(!p){p=alloc(storeStateRef.current.particleCount);pRef.current=p;}
     const n=p.count;
 
     if (!shapeModeRef.current) {
@@ -835,14 +876,14 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     }
     shapeModeRef.current=true;
     currentShapeRef.current=shape;
-    store.setActivePreset(null);
+    storeStateRef.current.setActivePreset(null);
     window.dispatchEvent(new CustomEvent("qf:shapeChanged", { detail: shape }));
     refreshCursor();
   }
 
   function initPreset(name:string){
     const{W,H}=getWH();
-    const n=store.particleCount;
+    const n=storeStateRef.current.particleCount;
     const p=alloc(n);
     const fn=PRESET_INITS[name]??PRESET_INITS["galaxy"]!;
     fn(p,W,H);
@@ -872,10 +913,10 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     oc.fillText(text,W/2,H/2);
     const imgData=oc.getImageData(0,0,W,H);
     const pts:number[]=[];
-    const step=Math.max(2,Math.floor(Math.sqrt(W*H/store.particleCount)*0.9));
+    const step=Math.max(2,Math.floor(Math.sqrt(W*H/storeStateRef.current.particleCount)*0.9));
     for(let y=0;y<H;y+=step)for(let x=0;x<W;x+=step)
       if((imgData.data[(y*W+x)*4]??0)>100) pts.push(x+(Math.random()-0.5)*step,y+(Math.random()-0.5)*step);
-    const nc=store.particleCount;
+    const nc=storeStateRef.current.particleCount;
     const tgt=new Float32Array(nc*2);
     for(let i=0;i<nc;i++){tgt[i*2]=pts[(i*2)%pts.length]??W/2;tgt[i*2+1]=pts[(i*2+1)%pts.length]??H/2;}
     return tgt;
@@ -884,7 +925,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   function activateText(text:string){
     const{W,H}=getWH();
     const tgt=buildTextTargets(text);
-    const n=store.particleCount;
+    const n=storeStateRef.current.particleCount;
     const p=alloc(n);
     for(let i=0;i<n;i++){
       p.px[i]=Math.random()*W;p.py[i]=Math.random()*H;
@@ -905,9 +946,9 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   function activateImage(imageData:ImageData, srcW:number, srcH:number, exactMode = false){
     const{W,H}=getWH();
     const exactPoints = exactMode ? extractOpaqueImagePoints(imageData, srcW, srcH).all : [];
-    const sampledPoints = exactMode ? exactPoints : buildAdaptiveImagePointSet(imageData, srcW, srcH, store.particleCount);
+    const sampledPoints = exactMode ? exactPoints : buildAdaptiveImagePointSet(imageData, srcW, srcH, storeStateRef.current.particleCount);
     const samples = sampledPoints.length > 0 ? sampledPoints : [{ x: srcW * 0.5, y: srcH * 0.5, r: 160, g: 180, b: 210, a: 255 }];
-    const n = exactMode ? samples.length : store.particleCount;
+    const n = exactMode ? samples.length : storeStateRef.current.particleCount;
     const fitScale=Math.min(W/Math.max(1,srcW),H/Math.max(1,srcH));
     const drawW=srcW*fitScale;
     const drawH=srcH*fitScale;
@@ -951,24 +992,37 @@ export function useParticleEngine({canvasRef}:EngineOptions){
   useEffect(()=>{
     const canvas=canvasRef.current;
     if(!canvas) return;
-    const dpr=window.devicePixelRatio||1;
-    canvas.width=canvas.offsetWidth*dpr; canvas.height=canvas.offsetHeight*dpr;
-    const buf=document.createElement("canvas");
-    buf.width=canvas.width; buf.height=canvas.height;
-    const ctx=buf.getContext("2d")!;
-    ctx.scale(dpr,dpr);
-    offRef.current={buf,ctx};
-    ambientRef.current = createAmbientField(canvas.offsetWidth, canvas.offsetHeight);
+    const buildLayers = (): void => {
+      const width = Math.max(1, canvas.offsetWidth);
+      const height = Math.max(1, canvas.offsetHeight);
+      const dpr = window.devicePixelRatio || 1;
+
+      canvas.width = Math.max(1, Math.floor(width * dpr));
+      canvas.height = Math.max(1, Math.floor(height * dpr));
+
+      screenCtxRef.current = get2DContext(canvas, false);
+
+      const mainLayer = createScaledLayer(width, height, dpr, false);
+      const particleLayer = createScaledLayer(width, height, dpr, true);
+      const blurLayer = createScaledLayer(width, height, dpr, true);
+
+      offRef.current = { buf: mainLayer.buf, ctx: mainLayer.ctx };
+      layersRef.current = {
+        particleBuf: particleLayer.buf,
+        particleCtx: particleLayer.ctx,
+        blurBuf: blurLayer.buf,
+        blurCtx: blurLayer.ctx,
+      };
+      gradientCacheRef.current = null;
+      colorLutRef.current = null;
+      ambientRef.current = createAmbientField(width, height);
+    };
+
+    buildLayers();
     initPreset("galaxy");
 
     const ro=new ResizeObserver(()=>{
-      const dpr2=window.devicePixelRatio||1;
-      canvas.width=canvas.offsetWidth*dpr2; canvas.height=canvas.offsetHeight*dpr2;
-      const b2=document.createElement("canvas");
-      b2.width=canvas.width; b2.height=canvas.height;
-      const c2=b2.getContext("2d")!; c2.scale(dpr2,dpr2);
-      offRef.current={buf:b2,ctx:c2};
-      ambientRef.current = createAmbientField(canvas.offsetWidth, canvas.offsetHeight);
+      buildLayers();
     });
     ro.observe(canvas);
     return()=>ro.disconnect();
@@ -1130,7 +1184,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
 
   /* ── Event bus ────────────────────────────────────────────────────── */
   useEffect(()=>{
-    const onPreset=(e:Event)=>{const name=(e as CustomEvent).detail as string;store.setActivePreset(name as never);initPreset(name);};
+    const onPreset=(e:Event)=>{const name=(e as CustomEvent).detail as string;storeStateRef.current.setActivePreset(name as never);initPreset(name);};
     const onShape=(e:Event)=>{
       const s=(e as CustomEvent).detail as string;
       if(s==="galaxy"){
@@ -1169,7 +1223,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     };
     const onPCount=(e:Event)=>{
       const next=(e as CustomEvent).detail as number;
-      store.setParticleCount(next);
+      storeStateRef.current.setParticleCount(next);
       setTimeout(()=>{
         if(shapeModeRef.current&&currentShapeRef.current!=="galaxy"){
           snapToShape(currentShapeRef.current);
@@ -1184,10 +1238,10 @@ export function useParticleEngine({canvasRef}:EngineOptions){
           activateText(lastTextRef.current||"QUANTUM");
           return;
         }
-        initPreset(store.activePreset??"galaxy");
+        initPreset(storeStateRef.current.activePreset??"galaxy");
       },30);
     };
-    const onPhysics=(e:Event)=>{store.setPhysicsMode((e as CustomEvent).detail as never);};
+    const onPhysics=(e:Event)=>{storeStateRef.current.setPhysicsMode((e as CustomEvent).detail as never);};
     const onImageData=(e:Event)=>{
       const{data,w,h,exact}=(e as CustomEvent).detail as{data:ImageData;w:number;h:number;exact?:boolean};
       activateImage(data,w,h,!!exact);
@@ -1219,14 +1273,18 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       window.removeEventListener("qf:physicsMode",onPhysics);
       window.removeEventListener("qf:imageData",onImageData);
     };
-  });
+  },[]);// eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Main frame loop ─────────────────────────────────────────────── */
   const onFrame=useCallback((dt:number)=>{
     const canvas=canvasRef.current;
     const off=offRef.current;
+    const layers=layersRef.current;
+    const screenCtx=screenCtxRef.current;
     const p=pRef.current;
-    if(!canvas||!off||!p) return;
+    if(!canvas||!off||!layers||!screenCtx||!p) return;
+
+    const store=storeStateRef.current;
 
     const W=canvas.offsetWidth,H=canvas.offsetHeight;
     const DT=Math.min(dt,3)*store.timeScale;
@@ -1364,7 +1422,19 @@ export function useParticleEngine({canvasRef}:EngineOptions){
         // Classical grid gravity
         const G=store.gravityG;
         const cellSize=70,gcx2=Math.ceil(W/cellSize)+1,gcy2=Math.ceil(H/cellSize)+1;
-        const gM=new Float32Array(gcx2*gcy2),gX=new Float32Array(gcx2*gcy2),gY=new Float32Array(gcx2*gcy2);
+        const cells=gcx2*gcy2;
+        const grid=gravityGridRef.current;
+        if(grid.cells!==cells){
+          grid.cells=cells;
+          grid.mass=new Float32Array(cells);
+          grid.sumX=new Float32Array(cells);
+          grid.sumY=new Float32Array(cells);
+        }else{
+          grid.mass.fill(0);
+          grid.sumX.fill(0);
+          grid.sumY.fill(0);
+        }
+        const gM=grid.mass,gX=grid.sumX,gY=grid.sumY;
         for(let i=0;i<p.count;i++){
           const gx=Math.max(0,Math.min(gcx2-1,Math.floor((p.px[i]??0)/cellSize)));
           const gy=Math.max(0,Math.min(gcy2-1,Math.floor((p.py[i]??0)/cellSize)));
@@ -1403,19 +1473,35 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     oc.fillStyle=`rgba(2,5,9,${Math.max(0.03, 1-store.trailDecay)})`;
     oc.fillRect(0,0,W,H);
 
-    const atmosphere = oc.createRadialGradient(W * 0.5, H * 0.45, Math.min(W, H) * 0.08, W * 0.5, H * 0.5, Math.min(W, H) * 0.78);
-    atmosphere.addColorStop(0, "rgba(0,255,210,0.05)");
-    atmosphere.addColorStop(0.35, "rgba(0,180,255,0.03)");
-    atmosphere.addColorStop(0.7, "rgba(7,29,52,0.02)");
-    atmosphere.addColorStop(1, "rgba(0,0,0,0)");
-    oc.fillStyle = atmosphere;
+    let gradients = gradientCacheRef.current;
+    if(!gradients || gradients.w !== W || gradients.h !== H){
+      const atmosphere = oc.createRadialGradient(W * 0.5, H * 0.45, Math.min(W, H) * 0.08, W * 0.5, H * 0.5, Math.min(W, H) * 0.78);
+      atmosphere.addColorStop(0, "rgba(0,255,210,0.05)");
+      atmosphere.addColorStop(0.35, "rgba(0,180,255,0.03)");
+      atmosphere.addColorStop(0.7, "rgba(7,29,52,0.02)");
+      atmosphere.addColorStop(1, "rgba(0,0,0,0)");
+
+      const grade = oc.createLinearGradient(0, 0, 0, H);
+      grade.addColorStop(0, "rgba(0,20,35,0.08)");
+      grade.addColorStop(1, "rgba(0,4,10,0.18)");
+
+      const vignette = oc.createRadialGradient(W * 0.5, H * 0.5, Math.min(W, H) * 0.32, W * 0.5, H * 0.5, Math.min(W, H) * 0.72);
+      vignette.addColorStop(0, "rgba(0,0,0,0)");
+      vignette.addColorStop(1, "rgba(0,0,0,0.62)");
+
+      gradients = { atmosphere, grade, vignette, w: W, h: H };
+      gradientCacheRef.current = gradients;
+    }
+
+    oc.fillStyle = gradients.atmosphere;
     oc.fillRect(0, 0, W, H);
 
     const ambient = ambientRef.current;
     if (ambient) {
+      const ambientStep = p.count > 140000 ? 3 : p.count > 90000 ? 2 : 1;
       oc.save();
       oc.globalCompositeOperation = "lighter";
-      for (let i = 0; i < ambient.count; i++) {
+      for (let i = 0; i < ambient.count; i += ambientStep) {
         let x = ambient.x[i] ?? 0;
         let y = ambient.y[i] ?? 0;
         const driftX = (ambient.vx[i] ?? 0) + Math.sin(simTimeRef.current * 0.1 + i * 0.021) * 0.005;
@@ -1447,17 +1533,54 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     const sz=store.particleSize;
     const tuning=renderTuningRef.current;
     const bm=store.bloomIntensity*tuning.glow;
-    const cm=CMAPS[store.colormap]??CMAPS["viridis"]!;
     const useImgColor=imgModeRef.current&&!!imgColorsRef.current;
     const imgC=imgColorsRef.current;
     const customPalette=customPaletteRef.current;
     const shapeDensity = shapeModeRef.current ? clamp(24000 / Math.max(9000, p.count), 0.32, 1) : 1;
     const shapeSizeFactor = shapeModeRef.current ? (0.5 + shapeDensity * 0.42) : 1;
     const shapeAlphaFactor = shapeModeRef.current ? (0.38 + shapeDensity * 0.44) : 1;
-    const haloFactor = shapeModeRef.current ? 0.24 : 1;
+    const luminanceCap = shapeModeRef.current ? 188 : 224;
 
-    oc.save();
-    oc.globalCompositeOperation = shapeModeRef.current ? "source-over" : "lighter";
+    let colorTable: Uint8Array | null = null;
+    if(!useImgColor){
+      const lutKey = customPalette.enabled
+        ? `custom:${customPalette.start.join("-")}:${customPalette.end.join("-")}:${tuning.brightness.toFixed(3)}:${luminanceCap}`
+        : `${store.colormap}:${tuning.brightness.toFixed(3)}:${luminanceCap}`;
+      if(!colorLutRef.current || colorLutRef.current.key !== lutKey){
+        const table = new Uint8Array(256 * 3);
+        const cm=CMAPS[store.colormap]??CMAPS["viridis"]!;
+        for(let i=0;i<256;i++){
+          const t = i / 255;
+          let r:number;
+          let g:number;
+          let b:number;
+          if(customPalette.enabled){
+            [r,g,b]=lerpRgb(customPalette.start,customPalette.end,t);
+          }else{
+            [r,g,b]=cm(t);
+          }
+          r=clamp(Math.round(r*tuning.brightness),0,255);
+          g=clamp(Math.round(g*tuning.brightness),0,255);
+          b=clamp(Math.round(b*tuning.brightness),0,255);
+          [r,g,b]=limitLuma(r,g,b,luminanceCap);
+          const o=i*3;
+          table[o]=r;
+          table[o+1]=g;
+          table[o+2]=b;
+        }
+        colorLutRef.current = { key: lutKey, table };
+      }
+      colorTable = colorLutRef.current.table;
+    }
+
+    const { particleCtx: pc, particleBuf, blurCtx, blurBuf } = layers;
+    const particleComposite = (shapeModeRef.current || imgModeRef.current) ? "source-over" : "lighter";
+    const styleCache = styleCacheRef.current;
+    styleCache.clear();
+
+    pc.clearRect(0, 0, W, H);
+    pc.save();
+    pc.globalCompositeOperation = particleComposite;
 
     for(let i=0;i<p.count;i++){
       const x=p.px[i]??0,y=p.py[i]??0;
@@ -1467,19 +1590,11 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       if(useImgColor&&imgC){
         r=imgC.r[i]??128; g=imgC.g[i]??128; b=imgC.b[i]??128;
       }else{
-        const t=Math.min(1,Math.max(0,p.pc[i]??0));
-        if(customPalette.enabled){
-          [r,g,b]=lerpRgb(customPalette.start,customPalette.end,t);
-        }else{
-          [r,g,b]=cm(t);
-        }
+        const ti = Math.min(255, Math.max(0, Math.round((p.pc[i] ?? 0) * 255))) * 3;
+        r=colorTable?.[ti]??128;
+        g=colorTable?.[ti+1]??128;
+        b=colorTable?.[ti+2]??128;
       }
-      if(!useImgColor){
-        r=clamp(Math.round(r*tuning.brightness),0,255);
-        g=clamp(Math.round(g*tuning.brightness),0,255);
-        b=clamp(Math.round(b*tuning.brightness),0,255);
-      }
-      [r,g,b]=limitLuma(r,g,b,shapeModeRef.current?188:224);
       const baseA=Math.min(1,Math.max(0,p.palpha[i]??0.8));
       const a=Math.min(0.92,baseA*shapeAlphaFactor);
       const mass=p.pm[i]??1;
@@ -1488,52 +1603,57 @@ export function useParticleEngine({canvasRef}:EngineOptions){
         ? Math.max(0.42,(p.psize[i]??1)*0.9*sz*0.72)
         : sz*(0.34 + (p.psize[i] ?? 1) * 0.95 + mass * 0.18 + Math.min(0.7, speed * 0.08))*shapeSizeFactor;
 
-      // Layer 1: cinematic outer halo
-      if(!imgModeRef.current&&bm>0.1&&a>0.35){
-        const glowR=s*6.2+4;
-        const grd=oc.createRadialGradient(x,y,0,x,y,glowR);
-        grd.addColorStop(0,`rgba(${r},${g},${b},${a*bm*0.22*haloFactor})`);
-        grd.addColorStop(0.45,`rgba(${r},${g},${b},${a*bm*0.08*haloFactor})`);
-        grd.addColorStop(1,"rgba(0,0,0,0)");
-        oc.fillStyle=grd;
-        oc.beginPath();oc.arc(x,y,glowR,0,Math.PI*2);oc.fill();
+      const drawAlpha = clamp(a, 0, 1);
+      if (drawAlpha <= 0.01) continue;
+      const alphaByte = Math.round(drawAlpha * 255);
+      const styleKey = (r << 24) | (g << 16) | (b << 8) | alphaByte;
+      let style = styleCache.get(styleKey);
+      if(!style){
+        style = `rgba(${r},${g},${b},${drawAlpha})`;
+        styleCache.set(styleKey, style);
       }
+      pc.fillStyle = style;
 
-      // Layer 2: dense glow halo
-      if(!imgModeRef.current&&bm>0.3&&a>0.5){
-        const glowR2=s*3.1+1;
-        const grd2=oc.createRadialGradient(x,y,0,x,y,glowR2);
-        grd2.addColorStop(0,`rgba(${r},${g},${b},${a*bm*0.43*haloFactor})`);
-        grd2.addColorStop(1,"rgba(0,0,0,0)");
-        oc.fillStyle=grd2;
-        oc.beginPath();oc.arc(x,y,glowR2,0,Math.PI*2);oc.fill();
-      }
-
-      // Layer 3: bright core dot
-      oc.fillStyle=`rgba(${r},${g},${b},${Math.min(0.94,a)})`;
-      oc.beginPath();oc.arc(x,y,Math.max(0.5,s),0,Math.PI*2);oc.fill();
-
-      // Layer 4: subtle tinted highlight to avoid white clipping.
-      if(!shapeModeRef.current&&s>1.2&&a>0.6&&bm>0.2){
-        const hr=Math.max(0.3,s*0.35);
-        const [hrR,hrG,hrB]=lerpRgb([r,g,b],[255,255,255],0.18);
-        oc.fillStyle=`rgba(${hrR},${hrG},${hrB},${a*0.2})`;
-        oc.beginPath();oc.arc(x-s*0.2,y-s*0.2,hr,0,Math.PI*2);oc.fill();
+      if(s <= 1.1){
+        const q = Math.max(0.5, s);
+        pc.fillRect(x - q * 0.5, y - q * 0.5, q, q);
+      }else{
+        pc.beginPath();
+        pc.arc(x, y, s, 0, Math.PI * 2);
+        pc.fill();
       }
     }
 
+    pc.restore();
+
+    oc.save();
+    oc.globalCompositeOperation = particleComposite;
+    oc.drawImage(particleBuf,0,0,W,H);
     oc.restore();
 
-    const gradeOverlay = oc.createLinearGradient(0, 0, 0, H);
-    gradeOverlay.addColorStop(0, "rgba(0,20,35,0.08)");
-    gradeOverlay.addColorStop(1, "rgba(0,4,10,0.18)");
-    oc.fillStyle = gradeOverlay;
+    // Screen-space bloom is far cheaper than per-particle radial gradients.
+    if(!imgModeRef.current && bm>0.01){
+      blurCtx.clearRect(0,0,W,H);
+      blurCtx.drawImage(particleBuf,0,0,W,H);
+
+      const blurBase = 0.75 + bm * 2.6;
+      oc.save();
+      oc.globalCompositeOperation = "lighter";
+      oc.filter = `blur(${blurBase.toFixed(2)}px)`;
+      oc.globalAlpha = clamp(0.14 + bm * 0.34, 0, 0.82);
+      oc.drawImage(blurBuf,0,0,W,H);
+      if(bm>0.55){
+        oc.filter = `blur(${(blurBase * 1.9).toFixed(2)}px)`;
+        oc.globalAlpha = clamp(0.05 + bm * 0.16, 0, 0.42);
+        oc.drawImage(blurBuf,0,0,W,H);
+      }
+      oc.restore();
+    }
+
+    oc.fillStyle = gradients.grade;
     oc.fillRect(0, 0, W, H);
 
-    const vignette = oc.createRadialGradient(W * 0.5, H * 0.5, Math.min(W, H) * 0.32, W * 0.5, H * 0.5, Math.min(W, H) * 0.72);
-    vignette.addColorStop(0, "rgba(0,0,0,0)");
-    vignette.addColorStop(1, "rgba(0,0,0,0.62)");
-    oc.fillStyle = vignette;
+    oc.fillStyle = gradients.vignette;
     oc.fillRect(0, 0, W, H);
 
     // Overlays
@@ -1561,9 +1681,8 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     }
 
     // Blit to screen — no globalCompositeOperation changes to avoid flicker
-    const mainCtx=canvas.getContext("2d")!;
-    mainCtx.clearRect(0,0,canvas.width,canvas.height);
-    mainCtx.drawImage(buf,0,0,canvas.width,canvas.height);
+    screenCtx.clearRect(0,0,canvas.width,canvas.height);
+    screenCtx.drawImage(buf,0,0,canvas.width,canvas.height);
 
     // Stats update (every ~30 frames)
     const fpsCtr=fpsRef.current;
@@ -1585,9 +1704,9 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       const tStr=simTimeRef.current.toFixed(1)+"s";
       ["s-time","hud-time"].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=tStr;});
     }
-  },[store]);// eslint-disable-line
+  },[refreshCursor]);// eslint-disable-line
 
-  useAnimationFrame({onFrame,enabled:store.isRunning});
+  useAnimationFrame({onFrame,enabled:isRunning});
 
   return{
     mouseRef,
