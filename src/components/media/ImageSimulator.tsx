@@ -553,6 +553,9 @@ export default function ImageSimulator({ canvasW = 800, canvasH = 600 }: ImageSi
 
       <div style={{ marginTop: 4, borderTop: "1px solid rgba(143,245,255,0.14)", paddingTop: 8 }}>
         <div style={{ fontSize: 10, color: "#8ab8d0", marginBottom: 6 }}>Image transform controls</div>
+        <div style={{ fontSize: 9, color: "#5f7997", marginBottom: 6 }}>
+          Canvas drag rotates and tilts. Use Shift plus drag to pan. Mouse wheel zooms.
+        </div>
 
         <div style={{ display: "grid", gap: 6 }}>
           <label style={{ display: "grid", gridTemplateColumns: "70px 1fr 52px", gap: 8, alignItems: "center", fontSize: 10, color: "#7080a8" }}>

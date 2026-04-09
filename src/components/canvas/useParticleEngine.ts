@@ -1559,11 +1559,11 @@ export function useParticleEngine({canvasRef}:EngineOptions){
         imgDragRef.current.lastX = e.clientX;
         imgDragRef.current.lastY = e.clientY;
         if (e.shiftKey) {
-          imgTransformRef.current.rotateDeg = clamp(imgTransformRef.current.rotateDeg + dx * 0.35, -180, 180);
-          imgTransformRef.current.tiltDeg = clamp(imgTransformRef.current.tiltDeg + dy * 0.2, -88, 88);
-        } else {
           imgTransformRef.current.panX = clamp(imgTransformRef.current.panX + dx, -4000, 4000);
           imgTransformRef.current.panY = clamp(imgTransformRef.current.panY + dy, -4000, 4000);
+        } else {
+          imgTransformRef.current.rotateDeg = clamp(imgTransformRef.current.rotateDeg + dx * 0.35, -180, 180);
+          imgTransformRef.current.tiltDeg = clamp(imgTransformRef.current.tiltDeg + dy * 0.2, -88, 88);
         }
         const { W, H } = getWH();
         applyImageTransformTargets(W, H);
@@ -1657,8 +1657,13 @@ export function useParticleEngine({canvasRef}:EngineOptions){
         const dy = touch.clientY - imgDragRef.current.lastY;
         imgDragRef.current.lastX = touch.clientX;
         imgDragRef.current.lastY = touch.clientY;
-        imgTransformRef.current.panX = clamp(imgTransformRef.current.panX + dx, -4000, 4000);
-        imgTransformRef.current.panY = clamp(imgTransformRef.current.panY + dy, -4000, 4000);
+        if (e.touches.length > 1) {
+          imgTransformRef.current.panX = clamp(imgTransformRef.current.panX + dx, -4000, 4000);
+          imgTransformRef.current.panY = clamp(imgTransformRef.current.panY + dy, -4000, 4000);
+        } else {
+          imgTransformRef.current.rotateDeg = clamp(imgTransformRef.current.rotateDeg + dx * 0.35, -180, 180);
+          imgTransformRef.current.tiltDeg = clamp(imgTransformRef.current.tiltDeg + dy * 0.2, -88, 88);
+        }
         const { W, H } = getWH();
         applyImageTransformTargets(W, H);
         e.preventDefault();
@@ -2046,8 +2051,9 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     const tuning=renderTuningRef.current;
     const bm=store.bloomIntensity*tuning.glow;
     const fastRender = p.count > 140000 || perf.smoothedFps < 44;
-    const particleStep = fastRender ? 2 : 1;
-    const particlePhase = perf.frame % particleStep;
+    // Always render a stable full set per frame; alternating subsets creates visible flicker.
+    const particleStep = 1;
+    const particlePhase = 0;
     const bloomGain = fastRender ? Math.min(0.22, bm * 0.38) : bm;
     const useImgColor=imgModeRef.current&&!!imgColorsRef.current;
     const imgC=imgColorsRef.current;
@@ -2119,7 +2125,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
         ? Math.max(0.42,(p.psize[i]??1)*0.9*sz*0.72)
         : sz*(0.34 + (p.psize[i] ?? 1) * 0.95 + mass * 0.18 + Math.min(0.7, speed * 0.08))*shapeSizeFactor;
 
-      const drawAlpha = clamp(a * (particleStep > 1 ? 1.28 : 1), 0, 1);
+      const drawAlpha = clamp(a, 0, 1);
       if (drawAlpha <= 0.01) continue;
       const alphaByte = Math.round(drawAlpha * 255);
       const styleKey = (r << 24) | (g << 16) | (b << 8) | alphaByte;
