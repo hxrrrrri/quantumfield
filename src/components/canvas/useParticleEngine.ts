@@ -1748,7 +1748,7 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       const detail=(e as CustomEvent).detail as RenderTuningState;
       renderTuningRef.current={
         brightness: clamp(detail?.brightness ?? renderTuningRef.current.brightness, 0.4, 2.2),
-        glow: clamp(detail?.glow ?? renderTuningRef.current.glow, 0, 2),
+        glow: clamp(detail?.glow ?? renderTuningRef.current.glow, 0, 4),
       };
     };
     const onCursorField=(e:Event)=>{
@@ -2049,18 +2049,23 @@ export function useParticleEngine({canvasRef}:EngineOptions){
 
     const sz=store.particleSize;
     const tuning=renderTuningRef.current;
-    const bm=store.bloomIntensity*tuning.glow;
     const fastRender = p.count > 140000 || perf.smoothedFps < 44;
     // Always render a stable full set per frame; alternating subsets creates visible flicker.
     const particleStep = 1;
     const particlePhase = 0;
-    const bloomGain = fastRender ? Math.min(0.22, bm * 0.38) : bm;
+    const glowResponse = shapeModeRef.current
+      ? 0.45 + tuning.glow * 1.35 + tuning.glow * tuning.glow * 0.22
+      : tuning.glow;
+    const bm=store.bloomIntensity*glowResponse;
+    const bloomGain = fastRender
+      ? Math.min(shapeModeRef.current ? 0.62 : 0.22, bm * (shapeModeRef.current ? 0.7 : 0.38))
+      : Math.min(shapeModeRef.current ? 2.2 : 1.0, bm * (shapeModeRef.current ? 1.18 : 1));
     const useImgColor=imgModeRef.current&&!!imgColorsRef.current;
     const imgC=imgColorsRef.current;
     const customPalette=customPaletteRef.current;
     const shapeDensity = shapeModeRef.current ? clamp(24000 / Math.max(9000, p.count), 0.32, 1) : 1;
     const shapeSizeFactor = shapeModeRef.current ? (0.5 + shapeDensity * 0.42) : 1;
-    const shapeAlphaFactor = shapeModeRef.current ? (0.38 + shapeDensity * 0.44) : 1;
+    const shapeAlphaFactor = shapeModeRef.current ? (0.52 + shapeDensity * 0.56) : 1;
     const luminanceCap = shapeModeRef.current ? 188 : 224;
 
     let colorTable: Uint8Array | null = null;
@@ -2096,7 +2101,9 @@ export function useParticleEngine({canvasRef}:EngineOptions){
     }
 
     const { particleCtx: pc, particleBuf, blurCtx, blurBuf } = layers;
-    const particleComposite = (shapeModeRef.current || imgModeRef.current) ? "source-over" : "lighter";
+    const particleComposite = imgModeRef.current
+      ? "source-over"
+      : (shapeModeRef.current ? "screen" : "lighter");
     const styleCache = styleCacheRef.current;
     styleCache.clear();
 
@@ -2158,15 +2165,30 @@ export function useParticleEngine({canvasRef}:EngineOptions){
       blurCtx.clearRect(0,0,W,H);
       blurCtx.drawImage(particleBuf,0,0,W,H);
 
-      const blurBase = fastRender ? 0.58 + bloomGain * 1.8 : 0.75 + bloomGain * 2.6;
+      const blurBase = fastRender
+        ? 0.6 + bloomGain * (shapeModeRef.current ? 2.9 : 1.8)
+        : 0.8 + bloomGain * (shapeModeRef.current ? 3.6 : 2.6);
       oc.save();
-      oc.globalCompositeOperation = "lighter";
-      oc.filter = `blur(${blurBase.toFixed(2)}px)`;
-      oc.globalAlpha = clamp(0.1 + bloomGain * 0.26, 0, 0.72);
+      const shapeBloom = shapeModeRef.current;
+      oc.globalCompositeOperation = shapeBloom ? "screen" : "lighter";
+      oc.filter = shapeBloom
+        ? `saturate(${(1.22 + Math.min(1.1, bloomGain * 0.34)).toFixed(2)}) blur(${blurBase.toFixed(2)}px)`
+        : `blur(${blurBase.toFixed(2)}px)`;
+      oc.globalAlpha = clamp(
+        (shapeBloom ? 0.1 : 0.1) + bloomGain * (shapeBloom ? 0.2 : 0.26),
+        0,
+        shapeBloom ? 0.58 : 0.72
+      );
       oc.drawImage(blurBuf,0,0,W,H);
-      if(!fastRender && bloomGain>0.55){
-        oc.filter = `blur(${(blurBase * 1.9).toFixed(2)}px)`;
-        oc.globalAlpha = clamp(0.05 + bloomGain * 0.16, 0, 0.42);
+      if((shapeBloom && bloomGain>0.28) || (!fastRender && bloomGain>0.55)){
+        oc.filter = shapeBloom
+          ? `saturate(${(1.12 + Math.min(0.9, bloomGain * 0.24)).toFixed(2)}) blur(${(blurBase * 2.05).toFixed(2)}px)`
+          : `blur(${(blurBase * 1.9).toFixed(2)}px)`;
+        oc.globalAlpha = clamp(
+          (shapeBloom ? 0.06 : 0.05) + bloomGain * (shapeBloom ? 0.14 : 0.16),
+          0,
+          shapeBloom ? 0.34 : 0.42
+        );
         oc.drawImage(blurBuf,0,0,W,H);
       }
       oc.restore();

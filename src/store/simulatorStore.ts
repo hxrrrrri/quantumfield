@@ -78,7 +78,7 @@ export const useSimulatorStore = create<SimulatorState & SimulatorActions>()(
       set({ particleCount: Math.max(100, Math.min(2_000_000, n)) }),
     setTimeScale: (t) => set({ timeScale: Math.max(0.01, Math.min(10, t)) }),
     setGravityG: (g) => set({ gravityG: Math.max(0, Math.min(10, g)) }),
-    setBloom: (b) => set({ bloomIntensity: Math.max(0, Math.min(1, b)) }),
+    setBloom: (b) => set({ bloomIntensity: Math.max(0, Math.min(2, b)) }),
     setTrailDecay: (t) => set({ trailDecay: Math.max(0.5, Math.min(0.99, t)) }),
     setParticleSize: (s) =>
       set({ particleSize: Math.max(0.5, Math.min(8, s)) }),

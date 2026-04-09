@@ -494,11 +494,11 @@ export default function CosmicSidebar(){
       </Section>
 
       <Section title="Rendering">
-        <Slider label="Bloom" value={store.bloomIntensity} min={0} max={1} step={0.05} onChange={store.setBloom}/>
+        <Slider label="Bloom" value={store.bloomIntensity} min={0} max={2} step={0.05} onChange={store.setBloom}/>
         <Slider label="Trail Decay" value={store.trailDecay} min={0.5} max={0.99} step={0.01} onChange={store.setTrailDecay}/>
         <Slider label="Particle Size" value={store.particleSize} min={0.4} max={6} step={0.1} onChange={store.setParticleSize}/>
         <Slider label="Color Brightness" value={colorBrightness} min={0.4} max={2} step={0.02} unit="×" onChange={setColorBrightness}/>
-        <Slider label="Glow Gain" value={glowGain} min={0} max={2} step={0.02} unit="×" onChange={setGlowGain}/>
+        <Slider label="Glow Gain" value={glowGain} min={0} max={4} step={0.02} unit="×" onChange={setGlowGain}/>
         <button
           onClick={()=>setCustomPaletteEnabled(v=>!v)}
           style={{
